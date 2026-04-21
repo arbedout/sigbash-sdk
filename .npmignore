@@ -1,0 +1,29 @@
+# Development source
+node_modules/
+src/
+*.test.ts
+test-imports.mjs
+jest.setup.ts
+package-lock.json
+
+# Build artifacts (keep only dist)
+.rollup.cache/
+dist/__tests__/
+
+# Configuration files
+tsconfig.json
+rollup.config.js
+jest.config.js
+
+# Git / IDE / OS
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# WASM binary — delivered via CDN, not bundled in npm package
+wasm/sigbash.wasm

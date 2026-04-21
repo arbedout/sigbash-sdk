@@ -1,0 +1,13 @@
+Sigbash SDK
+Copyright 2026 Sigbash, Inc.
+
+This product includes software developed by Sigbash, Inc.
+
+The Sigbash SDK source code in this repository is licensed under the
+Apache License, Version 2.0.
+
+This SDK may fetch or connect to software, binaries, or services hosted by
+Sigbash or third parties at runtime. Those hosted components are not
+distributed as part of this repository or package unless explicitly stated
+otherwise, and may be governed by separate terms, conditions, or technical
+controls.

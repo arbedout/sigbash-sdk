@@ -1,0 +1,71 @@
+{
+  "name": "@sigbash/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TypeScript SDK for Sigbash oblivious signing platform",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "wasm/wasm_exec.js",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "docs",
+    "examples"
+  ],
+  "homepage": "https://sigbash.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sigbash/sigbash-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sigbash/sigbash-sdk/issues"
+  },
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "test": "jest",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "bitcoin",
+    "signing",
+    "cryptography",
+    "zero-knowledge",
+    "oblivious-signing",
+    "wasm"
+  ],
+  "author": "Sigbash",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@types/node": "^20.11.16",
+    "jest": "^29.7.0",
+    "rollup": "^4.9.6",
+    "rollup-plugin-typescript2": "^0.36.0",
+    "ts-jest": "^29.1.2",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}
