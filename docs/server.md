@@ -9,7 +9,31 @@ any language that can make HTTP requests.
 ## Prerequisites
 
 - Node.js 18+ (or Docker)
-- A credential triplet in your environment (see [Authentication](authentication.md))
+- Credentials are optional at startup — see [Bootstrap](#bootstrap-generating-credentials) below
+
+---
+
+## Credential Resolution
+
+The server resolves credentials per request in this order:
+
+1. `.env` file in the working directory
+2. Environment variables
+3. `X-Sigbash-*` request headers
+
+This means the server starts without credentials and becomes fully functional
+as soon as credentials are available by any of these methods. It also means the
+same server instance can serve multiple callers with different credentials via headers.
+
+| Source | Keys |
+|---|---|
+| `.env` / env vars | `SIGBASH_API_KEY`, `SIGBASH_USER_KEY`, `SIGBASH_SECRET_KEY`, `SIGBASH_SERVER_URL` |
+| Headers | `X-Sigbash-Api-Key`, `X-Sigbash-User-Key`, `X-Sigbash-Secret-Key`, `X-Sigbash-Server-Url` |
+
+`SIGBASH_SERVER_URL` / `X-Sigbash-Server-Url` defaults to `https://www.sigbash.com` if not provided.
+
+Only `/health` and `/setup/credentials` are accessible without credentials.
+All other endpoints return `401` if credentials cannot be resolved.
 
 ---
 
@@ -19,17 +43,11 @@ any language that can make HTTP requests.
 # Install dependencies (express + @sigbash/sdk)
 npm install express @sigbash/sdk
 
-# Set required environment variables
-export SIGBASH_SERVER_URL=https://www.sigbash.com
-export SIGBASH_API_KEY=<your-api-key>
-export SIGBASH_USER_KEY=<your-user-key>
-export SIGBASH_SECRET_KEY=<your-user-secret-key>
-
 node server.js
 # → sigbash-http-server listening on :3000
 ```
 
-Optional variables:
+Optional environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -46,11 +64,16 @@ Build the image (uses the included `Dockerfile`):
 docker build -t sigbash-server .
 ```
 
-Run it:
+Run without credentials (bootstrap mode):
+
+```bash
+docker run --rm -p 3000:3000 sigbash-server
+```
+
+Run with credentials via environment:
 
 ```bash
 docker run --rm -p 3000:3000 \
-  -e SIGBASH_SERVER_URL=https://www.sigbash.com \
   -e SIGBASH_API_KEY=<your-api-key> \
   -e SIGBASH_USER_KEY=<your-user-key> \
   -e SIGBASH_SECRET_KEY=<your-user-secret-key> \
@@ -67,9 +90,9 @@ docker run --rm -p 3000:3000 --env-file .env sigbash-server
 
 ## Bootstrap: Generating Credentials
 
-If you don't have credentials yet, the server can generate them for you.
-Start the server with **placeholder** values, call `/setup/credentials`, then
-restart with the real values.
+The server starts without credentials. Call `/setup/credentials` to generate a
+fresh triplet, write the values to `.env`, and subsequent requests will pick
+them up automatically — no restart needed.
 
 ```bash
 # Generate a fresh credential triplet
@@ -85,8 +108,16 @@ curl -s -X POST http://localhost:3000/setup/credentials | jq .
 }
 ```
 
-Copy these into your `.env` and restart. The `userSecretKey` is generated
-locally — it is never sent to Sigbash.
+Write these into `.env`:
+
+```
+SIGBASH_API_KEY=a3f1c8...e8d2
+SIGBASH_USER_KEY=7b2e4f...1a9c
+SIGBASH_SECRET_KEY=d4c8a1...3f7e
+```
+
+The server picks up `.env` on the next request — no restart needed. The
+`userSecretKey` is generated locally and never sent to Sigbash.
 
 To get your org identifier (needed to request mainnet access):
 

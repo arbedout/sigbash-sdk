@@ -1,4 +1,5 @@
 import express from 'express';
+import { readFileSync } from 'fs';
 import {
   loadWasm,
   SigbashClient,
@@ -12,29 +13,59 @@ import {
   getAuthHash,
 } from '@sigbash/sdk';
 
-// ── Environment ────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
+const DEFAULT_SERVER_URL = 'https://www.sigbash.com';
 const {
-  SIGBASH_SERVER_URL,
-  SIGBASH_API_KEY,
-  SIGBASH_USER_KEY,
-  SIGBASH_SECRET_KEY,
-  SIGBASH_WASM_URL = 'https://www.sigbash.com/sigbash.wasm',
+  SIGBASH_WASM_URL = `${DEFAULT_SERVER_URL}/sigbash.wasm`,
   PORT = '3000',
 } = process.env;
 
-for (const [k, v] of Object.entries({ SIGBASH_SERVER_URL, SIGBASH_API_KEY, SIGBASH_USER_KEY, SIGBASH_SECRET_KEY })) {
-  if (!v) { console.error(`Missing required environment variable: ${k}`); process.exit(1); }
+// ── Credential resolution ──────────────────────────────────────────────────
+// Priority per request: .env file → process.env → X-Sigbash-* headers
+function parseDotEnv() {
+  try {
+    return Object.fromEntries(
+      readFileSync('.env', 'utf8').split('\n')
+        .map(l => l.match(/^([^#=]+)=(.*)$/))
+        .filter(Boolean)
+        .map(([, k, v]) => [k.trim(), v.trim()])
+    );
+  } catch {
+    return {};
+  }
+}
+
+function resolveCredentials(req) {
+  const file = parseDotEnv();
+  const get = (fileKey, envKey, header) =>
+    file[fileKey] || process.env[envKey] || req.headers[header] || '';
+  return {
+    serverUrl:     file['SIGBASH_SERVER_URL'] || process.env.SIGBASH_SERVER_URL || req.headers['x-sigbash-server-url'] || DEFAULT_SERVER_URL,
+    apiKey:        get('SIGBASH_API_KEY',    'SIGBASH_API_KEY',    'x-sigbash-api-key'),
+    userKey:       get('SIGBASH_USER_KEY',   'SIGBASH_USER_KEY',   'x-sigbash-user-key'),
+    userSecretKey: get('SIGBASH_SECRET_KEY', 'SIGBASH_SECRET_KEY', 'x-sigbash-secret-key'),
+  };
+}
+
+// ── Per-request credential middleware ──────────────────────────────────────
+// /health and /setup/credentials are exempt — all other routes require creds.
+const EXEMPT = new Set(['/health', '/setup/credentials']);
+
+function requireCredentials(req, res, next) {
+  if (EXEMPT.has(req.path)) return next();
+  const { apiKey, userKey, userSecretKey } = resolveCredentials(req);
+  if (!apiKey || !userKey || !userSecretKey) {
+    return res.status(401).json({
+      error: 'Missing credentials. Provide SIGBASH_API_KEY, SIGBASH_USER_KEY, and SIGBASH_SECRET_KEY via .env, environment variables, or X-Sigbash-* headers.',
+    });
+  }
+  next();
 }
 
 // ── Client factory ─────────────────────────────────────────────────────────
-// SigbashClient is lightweight; socket connects lazily per operation.
-function client() {
-  return new SigbashClient({
-    serverUrl:     SIGBASH_SERVER_URL,
-    apiKey:        SIGBASH_API_KEY,
-    userKey:       SIGBASH_USER_KEY,
-    userSecretKey: SIGBASH_SECRET_KEY,
-  });
+function client(req) {
+  const { serverUrl, apiKey, userKey, userSecretKey } = resolveCredentials(req);
+  return new SigbashClient({ serverUrl, apiKey, userKey, userSecretKey });
 }
 
 // ── Error mapping ──────────────────────────────────────────────────────────
@@ -56,13 +87,14 @@ function handleError(err, res) {
 // ── Routes ─────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
+app.use(requireCredentials);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ── Setup utilities (credential bootstrap) ─────────────────────────────────
 
-// Generate a fresh credential triplet. Call this once before you have credentials;
-// copy the response into your .env. Does not write any file (server is stateless).
+// Generate a fresh credential triplet. Call this before you have credentials.
+// Does not write any file — copy the response into your .env.
 app.post('/setup/credentials', (_req, res) => {
   const randomHex = () => Array.from(crypto.getRandomValues(new Uint8Array(32)))
     .map(b => b.toString(16).padStart(2, '0')).join('');
@@ -70,81 +102,80 @@ app.post('/setup/credentials', (_req, res) => {
     apiKey:        randomHex(),
     userKey:       randomHex(),
     userSecretKey: randomHex(),
-    serverUrl:     SIGBASH_SERVER_URL,
+    serverUrl:     DEFAULT_SERVER_URL,
   });
 });
 
 // Return the hashes Sigbash knows for the currently configured credentials.
 // Share apikeyHash with Sigbash to identify your org (e.g. to request mainnet access).
-app.get('/setup/auth-hash', async (_req, res) => {
+app.get('/setup/auth-hash', async (req, res) => {
   try {
-    const hashes = await getAuthHash(SIGBASH_API_KEY, SIGBASH_USER_KEY);
+    const { apiKey, userKey } = resolveCredentials(req);
+    const hashes = await getAuthHash(apiKey, userKey);
     res.json({ ...hashes, note: 'Share apikeyHash with Sigbash to identify your org (e.g. to request mainnet access).' });
   } catch (err) { handleError(err, res); }
 });
 
 app.post('/keys', async (req, res) => {
-  try { res.json(await client().createKey(req.body)); }
+  try { res.json(await client(req).createKey(req.body)); }
   catch (err) { handleError(err, res); }
 });
 
 app.get('/keys/:keyId', async (req, res) => {
-  try { res.json(await client().getKey(req.params.keyId, req.query)); }
+  try { res.json(await client(req).getKey(req.params.keyId, req.query)); }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/keys/:keyId/sign', async (req, res) => {
-  try { res.json(await client().signPSBT({ keyId: req.params.keyId, ...req.body })); }
+  try { res.json(await client(req).signPSBT({ keyId: req.params.keyId, ...req.body })); }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/keys/:keyId/verify', async (req, res) => {
-  try { res.json(await client().verifyPSBT(req.body)); }
+  try { res.json(await client(req).verifyPSBT(req.body)); }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/keys/:keyId/totp/register', async (req, res) => {
-  try { res.json(await client().registerTOTP(req.params.keyId)); }
+  try { res.json(await client(req).registerTOTP(req.params.keyId)); }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/keys/:keyId/totp/confirm', async (req, res) => {
-  try { await client().confirmTOTP(req.params.keyId, req.body.totpCode); res.json({ ok: true }); }
+  try { await client(req).confirmTOTP(req.params.keyId, req.body.totpCode); res.json({ ok: true }); }
   catch (err) { handleError(err, res); }
 });
 
 app.get('/keys/:keyId/recovery-kit', async (req, res) => {
-  try { res.json(await client().exportRecoveryKit(req.params.keyId, req.query)); }
+  try { res.json(await client(req).exportRecoveryKit(req.params.keyId, req.query)); }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/recovery', async (req, res) => {
-  try { res.json(await client().recoverFromKit(req.body)); }
+  try { res.json(await client(req).recoverFromKit(req.body)); }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/admin/recover', async (req, res) => {
   try {
     const { targetUserKey, keyId, recoveryKit } = req.body;
-    res.json(await client().adminRecoverKey(targetUserKey, keyId, recoveryKit));
+    res.json(await client(req).adminRecoverKey(targetUserKey, keyId, recoveryKit));
   }
   catch (err) { handleError(err, res); }
 });
 
 app.post('/admin/users', async (req, res) => {
-  try { await client().registerUser(req.body.userKey); res.json({ ok: true }); }
+  try { await client(req).registerUser(req.body.userKey); res.json({ ok: true }); }
   catch (err) { handleError(err, res); }
 });
 
 app.delete('/admin/users/:userKey', async (req, res) => {
-  try { await client().revokeUser(req.params.userKey); res.json({ ok: true }); }
+  try { await client(req).revokeUser(req.params.userKey); res.json({ ok: true }); }
   catch (err) { handleError(err, res); }
 });
 
 // ── Startup ────────────────────────────────────────────────────────────────
 async function start() {
-  // Derive wasm-version.json URL from WASM URL to get integrity hash.
-  // e.g. https://www.sigbash.com/sigbash.wasm → https://www.sigbash.com/wasm-version.json
   const versionUrl = new URL('wasm-version.json', SIGBASH_WASM_URL).href;
   const versionRes = await fetch(versionUrl);
   if (!versionRes.ok) throw new Error(`Failed to fetch ${versionUrl}: ${versionRes.status}`);
