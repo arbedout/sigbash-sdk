@@ -25,10 +25,10 @@
   "homepage": "https://sigbash.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sigbash/sigbash-sdk.git"
+    "url": "git+https://github.com/arbedout/sigbash-sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/sigbash/sigbash-sdk/issues"
+    "url": "https://github.com/arbedout/sigbash-sdk/issues"
   },
   "scripts": {
     "build": "rollup -c",
