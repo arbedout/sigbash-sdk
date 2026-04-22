@@ -180,9 +180,11 @@ async function start() {
   const versionRes = await fetch(versionUrl);
   if (!versionRes.ok) throw new Error(`Failed to fetch ${versionUrl}: ${versionRes.status}`);
   const { sha384 } = await versionRes.json();
+  // wasm-version.json stores sha384 as base64; loadWasm expects hex
+  const expectedHash = Buffer.from(sha384, 'base64').toString('hex');
 
   console.log(`Loading WASM from ${SIGBASH_WASM_URL} ...`);
-  await loadWasm({ wasmUrl: SIGBASH_WASM_URL, expectedHash: sha384 });
+  await loadWasm({ wasmUrl: SIGBASH_WASM_URL, expectedHash });
   console.log('WASM ready.');
 
   const server = app.listen(parseInt(PORT), () =>
