@@ -1608,4 +1608,126 @@ export class SigbashClient {
     };
   }
 
+  /**
+   * Recover a departed user's key material using their previously exported recovery kit.
+   *
+   * Admin-only. The organisation must have admin-initiated recovery enabled
+   * (set via the admin settings endpoint). The target user must be in the same org.
+   *
+   * The recovery kit must have been exported by the target user before they left.
+   * Without the kit the KMC cannot be decrypted — the recoveryKEK is derived from
+   * the target user's credential triplet and is not reproducible without it.
+   *
+   * @param targetUserKey - The userKey of the user whose key is being recovered
+   * @param keyId         - The key ID to recover (numeric string)
+   * @param recoveryKit   - SdkRecoveryKit previously exported by the target user
+   * @returns GetKeyResult — same shape as getKey(); use kmcJSON for re-registration
+   * @throws AdminError         if the caller is not an admin
+   * @throws SigbashSDKError    with code ADMIN_RECOVERY_DISABLED if the org has not enabled this feature
+   * @throws SigbashSDKError    with code NOT_FOUND if the target user or key is not found
+   * @throws CryptoError        if the recoveryKEK is wrong or decryption fails
+   */
+  async adminRecoverKey(
+    targetUserKey: string,
+    keyId: string,
+    recoveryKit: SdkRecoveryKit,
+  ): Promise<GetKeyResult> {
+    if (this.#disposed) {
+      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+    }
+
+    if (recoveryKit?.version !== 'sdk-recovery-v1') {
+      throw new SigbashSDKError(
+        `Unsupported recovery kit version: '${recoveryKit?.version}'. Expected 'sdk-recovery-v1'.`,
+        'RECOVERY_KIT_VERSION_MISMATCH',
+      );
+    }
+    if (!recoveryKit.keyId || !recoveryKit.recoveryKEK || !recoveryKit.cekCiphertext || !recoveryKit.cekNonce) {
+      throw new SigbashSDKError(
+        'Recovery kit is missing required fields (keyId, recoveryKEK, cekCiphertext, cekNonce)',
+        'RECOVERY_KIT_INVALID',
+      );
+    }
+
+    const callerAuthHash = await this._authHash;
+    const targetAuthHash = await doubleSha256(this._apiKey, targetUserKey);
+
+    const response = await fetch(
+      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/recover-key`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_hash: callerAuthHash,
+          target_auth_hash: targetAuthHash,
+          key_id: keyId,
+        }),
+      }
+    );
+
+    const data = await response.json() as {
+      success?: boolean;
+      code?: string;
+      message?: string;
+      encrypted_key_material?: string;
+      enc_kek2?: string;
+      policy_root?: string;
+      network?: string;
+      key_index?: number;
+      require_2fa?: boolean;
+    };
+
+    if (!response.ok || data.success !== true) {
+      const code = data.code ?? '';
+      if (code === 'ADMIN_RECOVERY_DISABLED') {
+        throw new SigbashSDKError(
+          data.message ?? 'Admin-initiated recovery is not enabled for this organisation',
+          'ADMIN_RECOVERY_DISABLED',
+        );
+      }
+      if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED' || response.status === 403) {
+        throw new AdminError(data.message ?? 'Admin access required');
+      }
+      throw new SigbashSDKError(
+        data.message ?? `adminRecoverKey failed (HTTP ${response.status})`,
+        code || 'SERVER_ERROR',
+      );
+    }
+
+    if (!data.encrypted_key_material) {
+      throw new SigbashSDKError('No encrypted_key_material in server response', 'NO_KEY_MATERIAL');
+    }
+
+    // Prefer server-fetched enc_kek2; fall back to kit snapshot.
+    let wrappedCEK: WrappedKey;
+    if (data.enc_kek2) {
+      wrappedCEK = parseEncKek2(data.enc_kek2) as WrappedKey;
+    } else {
+      wrappedCEK = { ciphertext: recoveryKit.cekCiphertext, nonce: recoveryKit.cekNonce };
+    }
+
+    const hexStr = recoveryKit.recoveryKEK;
+    if (hexStr.length !== 64 || !/^[0-9a-f]+$/i.test(hexStr)) {
+      throw new SigbashSDKError('Recovery kit recoveryKEK is not a valid 32-byte hex string', 'RECOVERY_KIT_INVALID');
+    }
+    const recoveryKEKBytes = Uint8Array.from(
+      hexStr.match(/.{2}/g)!.map(b => parseInt(b, 16))
+    );
+
+    const envelope = JSON.parse(data.encrypted_key_material) as KMCEnvelope;
+    const kmc = await decryptKMCFromRecoveryKEK(envelope, wrappedCEK, recoveryKEKBytes);
+    const kmcJSON = JSON.stringify(kmc);
+    const network = (data.network as GetKeyResult['network']) ?? 'signet';
+
+    return {
+      keyId: recoveryKit.keyId,
+      policyRoot: data.policy_root ?? '',
+      network,
+      require2FA: data.require_2fa ?? false,
+      keyIndex: data.key_index ?? 0,
+      keyMaterial: kmc as Record<string, unknown>,
+      kmcJSON,
+    };
+  }
+
 }
