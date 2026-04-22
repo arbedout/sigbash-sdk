@@ -8,6 +8,32 @@ npm install @sigbash/sdk
 
 ---
 
+## Step 0: Generate credentials
+
+No dashboard or sign-up required. Generate a credential triplet locally — any
+random set of hex strings is a valid Sigbash identity:
+
+```typescript
+import { generateCredentials } from '@sigbash/sdk';
+
+const { apiKey, userKey, userSecretKey } = await generateCredentials();
+// Writes .env on first run. Returns existing values on subsequent runs.
+```
+
+Your `.env` will contain:
+
+```
+SIGBASH_API_KEY=<64-char hex>
+SIGBASH_USER_KEY=<64-char hex>
+SIGBASH_SECRET_KEY=<64-char hex>
+SIGBASH_SERVER_URL=https://www.sigbash.com
+```
+
+Keep `SIGBASH_SECRET_KEY` private — it never leaves your machine and is the
+only thing that protects your key material.
+
+---
+
 ## Prerequisites: Load WASM
 
 Before calling any `SigbashClient` method you must load the Sigbash WASM

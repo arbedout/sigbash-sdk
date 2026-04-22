@@ -4,5 +4,6 @@ dist/
 .DS_Store
 .env
 coverage/
+test-results/
 .vscode/
 .idea/

@@ -21,40 +21,47 @@ npm install @sigbash/sdk
 
 ## Credentials
 
-You need three values to use the SDK:
+No dashboard or sign-up required. Generate a credential triplet locally:
 
-| Credential | What it is | How to get it |
+```typescript
+import { generateCredentials } from '@sigbash/sdk';
+
+const { apiKey, userKey, userSecretKey } = await generateCredentials();
+// Writes .env on first run. Returns existing values on subsequent runs.
+```
+
+| Credential | Role | Sent to server? |
 |---|---|---|
-| `apiKey` | Organisation-level API key | Sign up at [sigbash.com](https://www.sigbash.com) — your API key is on the dashboard |
-| `userKey` | Unique identifier for this user | Generate with `SigbashClient.generateUserKey()`, or use any stable string |
-| `userSecretKey` | User-only secret for local encryption | Generate with `SigbashClient.generateUserSecretKey()` — **store securely, never share** |
+| `apiKey` | Organisation identifier | Yes |
+| `userKey` | User identifier within your organisation | Yes |
+| `userSecretKey` | Local encryption key — protects your key material | **Never** |
 
-The `apiKey` and `userKey` are sent to the server for authentication. The
-`userSecretKey` **never leaves the client** — it is used only to derive the
-encryption key for local key material.
-
-> **First user in an org is auto-promoted to admin.** To add more users,
-> call `client.registerUser(newUserKey)` from an admin client.
+Keep `userSecretKey` private. The first user to call `createKey()` in a new org
+is auto-promoted to admin. Additional users are registered via
+`client.registerUser(userKey)`.
 
 ---
 
 ## Quick start
 
 ```typescript
-import { loadWasm, SigbashClient, conditionConfigToPoetPolicy } from '@sigbash/sdk';
+import { generateCredentials, loadWasm, SigbashClient, conditionConfigToPoetPolicy } from '@sigbash/sdk';
 
-// 1. Load WASM (once per process)
+// 1. Generate (or load) credentials — writes .env on first run
+const { apiKey, userKey, userSecretKey } = await generateCredentials();
+
+// 2. Load WASM (once per process)
 await loadWasm({ wasmUrl: 'https://www.sigbash.com/sigbash.wasm' });
 
-// 2. Create a client
+// 3. Create a client
 const client = new SigbashClient({
-  serverUrl:     'https://www.sigbash.com',
-  apiKey:        'your-api-key',                        // from dashboard
-  userKey:       SigbashClient.generateUserKey(),        // or any stable identifier
-  userSecretKey: SigbashClient.generateUserSecretKey(),  // store this securely
+  serverUrl: 'https://www.sigbash.com',
+  apiKey,
+  userKey,
+  userSecretKey,
 });
 
-// 3. Define a policy — all outputs must be <= 10,000 sats
+// 4. Define a policy — all outputs must be <= 10,000 sats
 const policy = conditionConfigToPoetPolicy({
   type: 'OUTPUT_VALUE',
   selector: 'ALL',
@@ -62,7 +69,7 @@ const policy = conditionConfigToPoetPolicy({
   value: 10_000,
 });
 
-// 4. Register a key with the policy
+// 5. Register a key with the policy
 const { keyId, p2trAddress } = await client.createKey({
   policy,
   network: 'signet',
@@ -70,10 +77,10 @@ const { keyId, p2trAddress } = await client.createKey({
 });
 console.log('Fund this address:', p2trAddress);
 
-// 5. Retrieve key material (needed for signing)
+// 6. Retrieve key material (needed for signing)
 const { kmcJSON } = await client.getKey(keyId);
 
-// 6. Sign a PSBT
+// 7. Sign a PSBT
 const result = await client.signPSBT({
   keyId,
   psbtBase64: '<your base64-encoded PSBT>',

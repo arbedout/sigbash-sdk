@@ -3,6 +3,7 @@ node_modules/
 src/
 *.test.ts
 test-imports.mjs
+test-docker.js
 jest.setup.ts
 package-lock.json
 

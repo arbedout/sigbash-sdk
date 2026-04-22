@@ -23,6 +23,10 @@ export { SigbashClient } from './SigbashClient';
 // Auth utilities
 export { doubleSha256, validateAuthHash } from './auth';
 
+// Credential generation and identity
+export { generateCredentials, getAuthHash } from './credentials';
+export type { GenerateCredentialsOptions, GeneratedCredentials, AuthHashResult } from './credentials';
+
 // Crypto utilities
 export { deriveKEK, encryptKMC, decryptKMC } from './crypto';
 

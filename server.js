@@ -9,6 +9,7 @@ import {
   TOTPInvalidError,
   AdminError,
   NetworkError,
+  getAuthHash,
 } from '@sigbash/sdk';
 
 // ── Environment ────────────────────────────────────────────────────────────
@@ -57,6 +58,30 @@ const app = express();
 app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// ── Setup utilities (credential bootstrap) ─────────────────────────────────
+
+// Generate a fresh credential triplet. Call this once before you have credentials;
+// copy the response into your .env. Does not write any file (server is stateless).
+app.post('/setup/credentials', (_req, res) => {
+  const randomHex = () => Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  res.json({
+    apiKey:        randomHex(),
+    userKey:       randomHex(),
+    userSecretKey: randomHex(),
+    serverUrl:     SIGBASH_SERVER_URL,
+  });
+});
+
+// Return the hashes Sigbash knows for the currently configured credentials.
+// Share apikeyHash with Sigbash to identify your org (e.g. to request mainnet access).
+app.get('/setup/auth-hash', async (_req, res) => {
+  try {
+    const hashes = await getAuthHash(SIGBASH_API_KEY, SIGBASH_USER_KEY);
+    res.json({ ...hashes, note: 'Share apikeyHash with Sigbash to identify your org (e.g. to request mainnet access).' });
+  } catch (err) { handleError(err, res); }
+});
 
 app.post('/keys', async (req, res) => {
   try { res.json(await client().createKey(req.body)); }

@@ -48,6 +48,7 @@
   "author": "Sigbash",
   "license": "Apache-2.0",
   "devDependencies": {
+    "bitcoinjs-lib": "^6.1.6",
     "@rollup/plugin-commonjs": "^29.0.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-typescript": "^11.1.6",
