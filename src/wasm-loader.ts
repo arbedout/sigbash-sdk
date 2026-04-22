@@ -216,7 +216,7 @@ async function loadWasmNode(
 /**
  * Initialize Go WASM runtime
  */
-function initializeGoRuntime(env: Environment): any {
+async function initializeGoRuntime(env: Environment): Promise<any> {
   // In browser/Electron, Go runtime should be loaded via script tag
   if (env === 'browser' || env === 'electron') {
     if (typeof (globalThis as any).Go === 'undefined') {
@@ -230,19 +230,32 @@ function initializeGoRuntime(env: Environment): any {
   // In Node.js, require wasm_exec.js
   if (env === 'node') {
     try {
+      // In ESM context require is not defined; use createRequire as fallback
+      // (typeof require is safe — won't throw even when require is not declared)
+      let requireFn: NodeRequire;
+      if (typeof require !== 'undefined') {
+        requireFn = require;
+      } else {
+        const { createRequire } = await import('module');
+        requireFn = createRequire(process.cwd() + '/');
+      }
+
       // R2: Load wasm_exec.js from bundled SDK package
       // Try multiple resolution paths for compatibility
       let wasmExecPath: string;
       try {
         // First try: resolve from node_modules/@sigbash/sdk/wasm/
-        wasmExecPath = require.resolve('@sigbash/sdk/wasm/wasm_exec.js');
+        wasmExecPath = requireFn.resolve('@sigbash/sdk/wasm/wasm_exec.js');
       } catch {
-        // Second try: resolve from dist directory (for local development)
-        const path = require('path');
-        wasmExecPath = path.resolve(__dirname, '../wasm/wasm_exec.js');
+        // Second try: resolve relative to this file (local development)
+        const path = requireFn('path');
+        const dirName = typeof __dirname !== 'undefined'
+          ? __dirname
+          : path.dirname(requireFn.resolve('@sigbash/sdk'));
+        wasmExecPath = path.resolve(dirName, '../wasm/wasm_exec.js');
       }
 
-      require(wasmExecPath);
+      requireFn(wasmExecPath);
 
       if (typeof (global as any).Go === 'undefined') {
         throw new Error('Go WASM runtime failed to initialize after loading wasm_exec.js');
@@ -301,7 +314,7 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
   onProgress?.(80, 'Initializing Go runtime...');
 
   // Initialize Go runtime
-  const go = initializeGoRuntime(env);
+  const go = await initializeGoRuntime(env);
 
   onProgress?.(85, 'Instantiating WASM module...');
 
