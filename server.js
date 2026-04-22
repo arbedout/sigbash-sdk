@@ -123,6 +123,14 @@ app.post('/recovery', async (req, res) => {
   catch (err) { handleError(err, res); }
 });
 
+app.post('/admin/recover', async (req, res) => {
+  try {
+    const { targetUserKey, keyId, recoveryKit } = req.body;
+    res.json(await client().adminRecoverKey(targetUserKey, keyId, recoveryKit));
+  }
+  catch (err) { handleError(err, res); }
+});
+
 app.post('/admin/users', async (req, res) => {
   try { await client().registerUser(req.body.userKey); res.json({ ok: true }); }
   catch (err) { handleError(err, res); }

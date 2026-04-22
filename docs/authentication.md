@@ -71,7 +71,7 @@ import { getAuthHash } from '@sigbash/sdk';
 const { apikeyHash, authHash } = await getAuthHash(apiKey, userKey);
 
 console.log('Org identifier (share with Sigbash):', apikeyHash);
-// Email support@sigbash.com with this value to request mainnet access.
+// Email sales@sigbash.com with this value to request mainnet access.
 ```
 
 Neither hash exposes `userSecretKey` or any derived key material.

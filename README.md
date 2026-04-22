@@ -30,15 +30,24 @@ const { apiKey, userKey, userSecretKey } = await generateCredentials();
 // Writes .env on first run. Returns existing values on subsequent runs.
 ```
 
+> **Your credentials never leave your machine.** `generateCredentials()` produces
+> three random hex strings locally. Sigbash only ever receives
+> `authHash = DSHA256(apiKey ∥ userKey)` — a one-way hash. Your raw credentials
+> are never transmitted.
+
 | Credential | Role | Sent to server? |
 |---|---|---|
-| `apiKey` | Organisation identifier | Yes |
-| `userKey` | User identifier within your organisation | Yes |
+| `apiKey` | Organisation identifier | No — only its hash |
+| `userKey` | User identifier within your organisation | No — only its hash |
 | `userSecretKey` | Local encryption key — protects your key material | **Never** |
 
 Keep `userSecretKey` private. The first user to call `createKey()` in a new org
 is auto-promoted to admin. Additional users are registered via
 `client.registerUser(userKey)`.
+
+> **Signet only by default.** All keys are created on Bitcoin signet. To enable
+> mainnet access for your org, email [sales@sigbash.com](mailto:sales@sigbash.com)
+> with your `apikeyHash` (run `getAuthHash(apiKey, userKey)` to obtain it).
 
 ---
 
@@ -72,7 +81,7 @@ const policy = conditionConfigToPoetPolicy({
 // 5. Register a key with the policy
 const { keyId, p2trAddress } = await client.createKey({
   policy,
-  network: 'signet',
+  network: 'signet',   // signet only by default — email sales@sigbash.com to upgrade
   require2FA: false,
 });
 console.log('Fund this address:', p2trAddress);
@@ -112,6 +121,7 @@ Then as needed:
 - [Error Handling](docs/error-handling.md) — error class hierarchy and recovery patterns
 - [Security](docs/security.md) — credential model, WASM integrity verification
 - [Environment Support](docs/environments.md) — Node.js, browsers, Electron
+- [Running the HTTP Server](docs/server.md) — standalone Node.js, Docker, curl examples
 
 ---
 
