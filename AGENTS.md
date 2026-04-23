@@ -13,8 +13,12 @@ was taken.
 ## Step 1: Choose an integration path
 
 Check whether this is a TypeScript/JavaScript project:
-- **`package.json` or `tsconfig.json` present** → TypeScript SDK (default, recommended)
+- **`package.json` or `tsconfig.json` present** → TypeScript SDK 
 - **Any other language** → HTTP server (`server.js` / Docker)
+
+Recommended: Docker
+If Docker is unavailable but node is: server.js
+If neither Docker or node are available, but this is a Typscript/Javascript project - ask if the user wants to install the Typscript SDK. 
 
 **MANDATORY: Ask the user to confirm** before proceeding. Do NOT start any server,
 generate credentials, or take any action until the user has explicitly confirmed
