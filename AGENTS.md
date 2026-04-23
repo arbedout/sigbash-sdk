@@ -16,12 +16,20 @@ Check whether this is a TypeScript/JavaScript project:
 - **`package.json` or `tsconfig.json` present** → TypeScript SDK (default, recommended)
 - **Any other language** → HTTP server (`server.js` / Docker)
 
-**Ask the user to confirm** before proceeding. Suggest the appropriate default
-based on what you detected. Example prompt:
+**MANDATORY: Ask the user to confirm** before proceeding. Do NOT start any server,
+generate credentials, or take any action until the user has explicitly confirmed
+the integration path. Suggest the appropriate default based on what you detected.
+Example prompt:
 
 > "I can see this is a [TypeScript / Python / Go / ...] project. The recommended
 > integration is [TypeScript SDK / Sigbash HTTP server]. Shall I proceed with
 > that, or would you prefer the other option?"
+
+**When using the HTTP server path, always prefer Docker over `node server.js`.**
+Only fall back to standalone Node if the user explicitly requests it or Docker is
+unavailable. Do not start either server without user confirmation first.
+
+If there is any doubt, prefer the Docker path.
 
 ---
 
@@ -128,8 +136,13 @@ Credentials can be provided three ways (resolved in this order):
 ### Key operations
 
 **Register a key:**
+
+Start at `keyIndex: 0`. If the server responds with an error containing `nextAvailableIndex`, retry
+automatically using that value — do not ask the user. Repeat until a key is successfully created.
+
 ```bash
-curl -X POST http://localhost:3000/keys \
+# Attempt registration; capture the full response
+RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": {
@@ -145,9 +158,27 @@ curl -X POST http://localhost:3000/keys \
       }
     },
     "network": "signet",
-    "require2FA": false
-  }'
+    "require2FA": false,
+    "keyIndex": 0
+  }')
+
+# If index 0 is taken, the response contains nextAvailableIndex — retry with it
+NEXT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('nextAvailableIndex',''))" 2>/dev/null)
+if [ -n "$NEXT" ]; then
+  RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
+    -H 'Content-Type: application/json' \
+    -d "{
+      \"policy\": { \"version\": \"1.1\", \"policy\": { \"type\": \"operator\", \"operator\": \"AND\", \"children\": [{ \"type\": \"condition\", \"conditionType\": \"OUTPUT_VALUE\", \"conditionParams\": { \"selector\": \"ALL\", \"operator\": \"LTE\", \"value\": 10000 } }] } },
+      \"network\": \"signet\",
+      \"require2FA\": false,
+      \"keyIndex\": $NEXT
+    }")
+fi
+echo "$RESPONSE"
 ```
+
+The successful response includes `keyId`, `p2trAddress`, `aggregatePubKeyHex`, and `bip328Xpub`.
+Save `keyId` — it is required for all subsequent signing calls.
 
 **Sign a PSBT:**
 ```bash
