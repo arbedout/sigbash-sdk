@@ -77,6 +77,16 @@ SIGBASH_SECRET_KEY=<64-char hex>
 
 ## Step 3a: TypeScript SDK integration
 
+**MANDATORY before asking the user about their spending policy:** read
+`docs/policy-reference.md` in full. It lists all 27 condition types (value
+caps, timelocks, address allowlists, rate limits, script types, derived
+properties, and more) and all 12 boolean operators. Present the relevant
+options to the user so they can make an informed choice — do not just ask
+"what conditions?" without first knowing what is available. There are 14
+operators in total: 9 boolean (AND, OR, NOT, IMPLIES, IFF, VETO, NOR, NAND,
+XOR) and 5 threshold (THRESHOLD, WEIGHTED_THRESHOLD, MAJORITY, EXACTLY,
+AT_MOST).
+
 ```bash
 npm install @sigbash/sdk
 ```
@@ -138,6 +148,11 @@ Credentials can be provided three ways (resolved in this order):
 3. Per-request headers (`X-Sigbash-Api-Key`, `X-Sigbash-User-Key`, `X-Sigbash-Secret-Key`, `X-Sigbash-Server-Url`)
 
 ### Key operations
+
+**MANDATORY before asking the user about their spending policy:** read
+`docs/policy-reference.md` in full. It lists all 27 condition types and all
+14 operators (9 boolean, 5 threshold). Present the relevant options to the
+user before asking what policy they want.
 
 **Register a key:**
 
