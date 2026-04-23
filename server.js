@@ -116,6 +116,11 @@ app.get('/setup/auth-hash', async (req, res) => {
   } catch (err) { handleError(err, res); }
 });
 
+app.get('/keys', async (req, res) => {
+  try { res.json(await client(req).listKeys()); }
+  catch (err) { handleError(err, res); }
+});
+
 app.post('/keys', async (req, res) => {
   try { res.json(await client(req).createKey(req.body)); }
   catch (err) { handleError(err, res); }

@@ -85,6 +85,7 @@ export type {
   CreateKeyResult,
   GetKeyResult,
   KeySummary,
+  KeyListItem,
   SignPSBTOptions,
   SignPSBTResult,
   NullifierCheckResult,

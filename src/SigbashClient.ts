@@ -20,6 +20,7 @@ import type {
   CreateKeyResult,
   GetKeyResult,
   KeySummary,
+  KeyListItem,
   SignPSBTOptions,
   SignPSBTResult,
   VerifyPSBTOptions,
@@ -461,6 +462,37 @@ export class SigbashClient {
   // -------------------------------------------------------------------------
   // Core methods
   // -------------------------------------------------------------------------
+
+  /**
+   * List all valid keys registered by this user.
+   *
+   * Returns lightweight metadata only — no KMC decryption is performed.
+   * Call getKey(keyId) to obtain kmcJSON for signing.
+   */
+  async listKeys(): Promise<KeyListItem[]> {
+    if (this.#disposed) {
+      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+    }
+
+    const authHash = await this._authHash;
+    const url = `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys?auth_hash=${authHash}`;
+    const response = await fetch(url);
+    const data = (await response.json()) as {
+      success?: boolean;
+      keys?: KeyListItem[];
+      code?: string;
+      message?: string;
+    };
+
+    if (!response.ok || data.success !== true) {
+      throw new SigbashSDKError(
+        data.message ?? `listKeys failed (HTTP ${response.status})`,
+        data.code ?? 'SERVER_ERROR'
+      );
+    }
+
+    return data.keys ?? [];
+  }
 
   /**
    * Create a new policy-bound key and register it with the server.

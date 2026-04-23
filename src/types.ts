@@ -192,6 +192,19 @@ export interface CreateKeyOptions {
  * Slim key summary returned by createKey() and getKey() when verbose is false (default).
  * Contains only the fields needed to identify the key and reconstruct its policy.
  */
+export interface KeyListItem {
+  /** Key index (same value used as keyId). */
+  keyId: string;
+  /** Bitcoin network this key is registered on. */
+  network: Network;
+  /** Policy root hash (hex). */
+  policyRoot: string;
+  /** Whether 2FA is required for signing. */
+  require2FA: boolean;
+  /** ISO-8601 creation timestamp. */
+  createdAt: string | null;
+}
+
 export interface KeySummary {
   /** Key index within the org (org-scoped, starts at 0). */
   keyIndex: number;

@@ -23,7 +23,7 @@
 /** Parameter specification for a single condition param. */
 export interface ConditionParamSpec {
   /** JavaScript type of the parameter value. */
-  type: 'number' | 'string' | 'boolean' | 'string[]' | 'Selector' | 'ComparisonOperator';
+  type: 'number' | 'number[]' | 'string' | 'boolean' | 'string[]' | 'Selector' | 'ComparisonOperator';
   /** Human-readable description. */
   description: string;
   /** Whether this parameter must be supplied. */
