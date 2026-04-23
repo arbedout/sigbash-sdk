@@ -19,6 +19,7 @@ import type {
   CreateKeyOptions,
   CreateKeyResult,
   GetKeyResult,
+  KeySummary,
   SignPSBTOptions,
   SignPSBTResult,
   VerifyPSBTOptions,
@@ -248,6 +249,13 @@ function normalisePolicy(node: unknown): unknown {
  * });
  * ```
  */
+function _extractPoetJSON(kmc: object): object {
+  const raw = (kmc as Record<string, unknown>).poet_policy_json;
+  if (typeof raw === 'string') return JSON.parse(raw) as object;
+  if (raw && typeof raw === 'object') return raw as object;
+  return {};
+}
+
 export class SigbashClient {
   private readonly _apiKey: string;
   private readonly _userKey: string;
@@ -464,7 +472,9 @@ export class SigbashClient {
    * @throws KeyIndexExistsError if the requested keyIndex is already in use
    * @throws NetworkError if the network is not enabled on the server
    */
-  async createKey(options: CreateKeyOptions): Promise<CreateKeyResult> {
+  async createKey(options: CreateKeyOptions & { verbose: true }): Promise<CreateKeyResult>;
+  async createKey(options: CreateKeyOptions & { verbose?: false }): Promise<KeySummary>;
+  async createKey(options: CreateKeyOptions): Promise<CreateKeyResult | KeySummary> {
     if (this.#disposed) {
       throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
     }
@@ -776,15 +786,27 @@ export class SigbashClient {
       throw err;
     }
 
+    const keyIndex = options.keyIndex ?? 0;
+    const bip328Xpub = aggregateResult.bip328_xpub ?? '';
+
+    if (!options.verbose) {
+      return {
+        keyIndex,
+        policyRoot,
+        bip328Xpub,
+        poetJSON: _extractPoetJSON(kmc),
+      };
+    }
+
     return {
       keyId: response.key_id,
       policyRoot,
       network: options.network,
       require2FA: options.require2FA,
-      keyIndex: options.keyIndex ?? 0,
+      keyIndex,
       p2trAddress: aggregateResult.p2tr_address,
       aggregatePubKeyHex: aggregateResult.aggregate_public_key_hex,
-      bip328Xpub: aggregateResult.bip328_xpub,
+      bip328Xpub,
     };
   }
 
@@ -794,10 +816,12 @@ export class SigbashClient {
    * @param keyId - The key identifier returned by createKey()
    * @param opts.keyIndex - Optional key index (default 0)
    */
+  async getKey(keyId: string, opts: { verbose: true; keyIndex?: number }): Promise<GetKeyResult>;
+  async getKey(keyId: string, opts?: { verbose?: false; keyIndex?: number }): Promise<KeySummary>;
   async getKey(
     keyId: string,
-    opts?: { keyIndex?: number }
-  ): Promise<GetKeyResult> {
+    opts?: { verbose?: boolean; keyIndex?: number }
+  ): Promise<GetKeyResult | KeySummary> {
     if (this.#disposed) {
       throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
     }
@@ -864,14 +888,25 @@ export class SigbashClient {
     }
 
     const network = (response.network as GetKeyResult['network']) ?? 'signet';
+    const keyIndex = response.key_index ?? opts?.keyIndex ?? 0;
+    const kmcObj = kmc as Record<string, unknown>;
+
+    if (!opts?.verbose) {
+      return {
+        keyIndex,
+        policyRoot: response.policy_root,
+        bip328Xpub: (kmcObj.bip328_xpub as string) ?? '',
+        poetJSON: _extractPoetJSON(kmc),
+      };
+    }
 
     return {
       keyId,
       policyRoot: response.policy_root,
       network,
       require2FA: response.require_2fa,
-      keyIndex: response.key_index ?? opts?.keyIndex ?? 0,
-      keyMaterial: kmc as Record<string, unknown>,
+      keyIndex,
+      keyMaterial: kmcObj,
       kmcJSON,
     };
   }

@@ -96,7 +96,7 @@ them up automatically — no restart needed.
 
 ```bash
 # Generate a fresh credential triplet
-curl -s -X POST http://localhost:3000/setup/credentials | jq .
+curl -s -X POST http://localhost:3000/setup/credentials | python3 -m json.tool
 ```
 
 ```json
@@ -122,7 +122,7 @@ The server picks up `.env` on the next request — no restart needed. The
 To get your org identifier (needed to request mainnet access):
 
 ```bash
-curl -s http://localhost:3000/setup/auth-hash | jq .
+curl -s http://localhost:3000/setup/auth-hash | python3 -m json.tool
 ```
 
 ```json
@@ -145,14 +145,20 @@ curl -s -X POST http://localhost:3000/keys \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": {
-      "type": "OUTPUT_VALUE",
-      "selector": "ALL",
-      "operator": "LTE",
-      "value": 10000
+      "version": "1.1",
+      "policy": {
+        "type": "operator",
+        "operator": "AND",
+        "children": [{
+          "type": "condition",
+          "conditionType": "OUTPUT_VALUE",
+          "conditionParams": { "selector": "ALL", "operator": "LTE", "value": 10000 }
+        }]
+      }
     },
     "network": "signet",
     "require2FA": false
-  }' | jq .
+  }' | python3 -m json.tool
 ```
 
 ```json
@@ -169,23 +175,28 @@ Fund the returned `p2trAddress` on signet before signing.
 
 ## Retrieving a Key
 
+By default, `GET /keys/:keyId` returns a slim summary:
+
 ```bash
-curl -s http://localhost:3000/keys/key-abc123 | jq .
+curl -s http://localhost:3000/keys/0 | python3 -m json.tool
 ```
 
 ```json
 {
-  "keyId": "key-abc123",
-  "policyRoot": "a3f1c8...",
-  "network": "signet",
-  "require2FA": false,
   "keyIndex": 0,
-  "keyMaterial": { "...": "..." },
-  "kmcJSON": "{...}"
+  "policyRoot": "a3f1c8...",
+  "bip328Xpub": "[fingerprint]tpub...",
+  "poetJSON": { "version": "1.1", "policy": { "..." } }
 }
 ```
 
-The `kmcJSON` field is required for signing.
+To get the full key material including `kmcJSON` (required for signing), pass `?verbose=true`:
+
+```bash
+curl -s "http://localhost:3000/keys/0?verbose=true" | python3 -m json.tool
+```
+
+The `kmcJSON` field from the verbose response is required for signing.
 
 ---
 
@@ -198,7 +209,7 @@ curl -s -X POST http://localhost:3000/keys/key-abc123/sign \
     "psbtBase64": "<base64-encoded PSBT>",
     "kmcJSON": "<kmcJSON from getKey>",
     "network": "signet"
-  }' | jq .
+  }' | python3 -m json.tool
 ```
 
 ```json
@@ -221,7 +232,7 @@ curl -s -X POST http://localhost:3000/keys/key-abc123/verify \
     "psbtBase64": "<base64-encoded PSBT>",
     "kmcJSON": "<kmcJSON from getKey>",
     "network": "signet"
-  }' | jq .
+  }' | python3 -m json.tool
 ```
 
 ```json
@@ -244,7 +255,7 @@ on the credential model and how recovery kits work.
 Call this **before** the `userSecretKey` is lost, while the triplet is still valid:
 
 ```bash
-curl -s http://localhost:3000/keys/key-abc123/recovery-kit | jq .
+curl -s http://localhost:3000/keys/key-abc123/recovery-kit | python3 -m json.tool
 ```
 
 ```json
@@ -279,7 +290,7 @@ curl -s -X POST http://localhost:3000/recovery \
     "cekNonce": "1b2c8f...",
     "network": "signet",
     "createdAt": 1745000000
-  }' | jq .
+  }' | python3 -m json.tool
 ```
 
 Returns a `GetKeyResult` — same shape as `GET /keys/:keyId`, including `kmcJSON`
@@ -306,7 +317,7 @@ curl -s -X POST http://localhost:3000/admin/recover \
       "network": "signet",
       "createdAt": 1745000000
     }
-  }' | jq .
+  }' | python3 -m json.tool
 ```
 
 The server authenticates the request using the **caller's** credentials (from the

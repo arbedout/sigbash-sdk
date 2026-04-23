@@ -122,7 +122,10 @@ app.post('/keys', async (req, res) => {
 });
 
 app.get('/keys/:keyId', async (req, res) => {
-  try { res.json(await client(req).getKey(req.params.keyId, req.query)); }
+  try {
+    const verbose = req.query.verbose === 'true';
+    res.json(await client(req).getKey(req.params.keyId, { verbose }));
+  }
   catch (err) { handleError(err, res); }
 });
 

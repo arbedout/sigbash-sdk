@@ -7,7 +7,47 @@ combine children with boolean logic (AND, OR, NOT, etc.). Condition leaves check
 one property of the transaction being signed. The policy evaluates to `true` when
 the root node is satisfied.
 
-Use `conditionConfigToPoetPolicy()` to build policies from a convenient shorthand:
+---
+
+## Policy JSON format
+
+All policies — whether passed via the TypeScript SDK or the HTTP server — must
+be a versioned `POETPolicy` object with a `version` field and a `policy` tree:
+
+```json
+{
+  "version": "1.1",
+  "policy": {
+    "type": "operator",
+    "operator": "AND",
+    "children": [
+      {
+        "type": "condition",
+        "conditionType": "OUTPUT_VALUE",
+        "conditionParams": { "selector": "ALL", "operator": "LTE", "value": 10000 }
+      }
+    ]
+  }
+}
+```
+
+**Node shapes:**
+
+| Node type | Required fields |
+|---|---|
+| Operator | `type: "operator"`, `operator` (e.g. `"AND"`), `children: [...]` |
+| Condition leaf | `type: "condition"`, `conditionType` (e.g. `"OUTPUT_VALUE"`), `conditionParams: {...}` |
+
+A bare condition at the top level must be wrapped in an `AND` operator node —
+the server does not auto-wrap. The TypeScript helper `conditionConfigToPoetPolicy()`
+handles this automatically.
+
+---
+
+## TypeScript shorthand
+
+Use `conditionConfigToPoetPolicy()` to build the versioned policy object from a
+convenient shorthand rather than writing the tree by hand:
 
 ```typescript
 import { conditionConfigToPoetPolicy } from '@sigbash/sdk';

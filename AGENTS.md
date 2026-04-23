@@ -6,6 +6,8 @@ proved by a zero-knowledge proof computed locally in WASM. The server is
 oblivious — it never sees the transaction, the co-signers, or which policy path
 was taken.
 
+**SDK repository:** https://github.com/arbedout/sigbash-sdk
+
 ---
 
 ## Step 1: Choose an integration path
@@ -38,15 +40,22 @@ const { apiKey, userKey, userSecretKey } = await generateCredentials();
 ### HTTP server path
 Start the server first (no credentials required to start), then call:
 ```bash
-curl -s -X POST http://localhost:3000/setup/credentials | tee .env.json
+curl -s -X POST http://localhost:3000/setup/credentials > creds.json
 ```
-Write the response values into `.env`:
+Write the values into `.env` (the server picks this up on the next request — no restart needed):
+```bash
+python3 -c "
+import json
+d = json.load(open('creds.json'))
+print(f\"SIGBASH_API_KEY={d['apiKey']}\nSIGBASH_USER_KEY={d['userKey']}\nSIGBASH_SECRET_KEY={d['userSecretKey']}\")
+" > .env
 ```
-SIGBASH_API_KEY=<apiKey from response>
-SIGBASH_USER_KEY=<userKey from response>
-SIGBASH_SECRET_KEY=<userSecretKey from response>
+The resulting `.env`:
 ```
-Credentials take effect on the next request — no restart needed.
+SIGBASH_API_KEY=<64-char hex>
+SIGBASH_USER_KEY=<64-char hex>
+SIGBASH_SECRET_KEY=<64-char hex>
+```
 
 > **Security**: keep `userSecretKey` / `SIGBASH_SECRET_KEY` private. It never
 > leaves the client and is the only thing protecting key material. Do not commit
@@ -72,6 +81,7 @@ const client = new SigbashClient({ serverUrl: 'https://www.sigbash.com', apiKey,
 const { keyId, p2trAddress } = await client.createKey({
   policy: conditionConfigToPoetPolicy({ type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 10_000 }),
   network: 'signet',   // signet only by default — see mainnet note below
+  require2FA: false,
 });
 
 // Sign a PSBT
@@ -96,6 +106,8 @@ node server.js
 
 **Docker:**
 ```bash
+git clone https://github.com/arbedout/sigbash-sdk.git
+cd sigbash-sdk
 docker build -t sigbash-server .
 docker run --rm -p 3000:3000 sigbash-server
 # or with a .env file:
@@ -113,13 +125,28 @@ Credentials can be provided three ways (resolved in this order):
 ```bash
 curl -X POST http://localhost:3000/keys \
   -H 'Content-Type: application/json' \
-  -d '{"policy": {"type": "OUTPUT_VALUE", "selector": "ALL", "operator": "LTE", "value": 10000}, "network": "signet"}'
+  -d '{
+    "policy": {
+      "version": "1.1",
+      "policy": {
+        "type": "operator",
+        "operator": "AND",
+        "children": [{
+          "type": "condition",
+          "conditionType": "OUTPUT_VALUE",
+          "conditionParams": { "selector": "ALL", "operator": "LTE", "value": 10000 }
+        }]
+      }
+    },
+    "network": "signet",
+    "require2FA": false
+  }'
 ```
 
 **Sign a PSBT:**
 ```bash
-# First retrieve kmcJSON
-KMC=$(curl -s http://localhost:3000/keys/<keyId> | jq -r .kmcJSON)
+# First retrieve kmcJSON (verbose=true required)
+KMC=$(curl -s "http://localhost:3000/keys/<keyId>?verbose=true" | python3 -c "import sys,json; print(json.load(sys.stdin)['kmcJSON'])")
 
 curl -X POST http://localhost:3000/keys/<keyId>/sign \
   -H 'Content-Type: application/json' \

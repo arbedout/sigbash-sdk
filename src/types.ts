@@ -180,6 +180,27 @@ export interface CreateKeyOptions {
    * Client MuSig2 public keys (hex-encoded compressed pubkeys).
    */
   clientKeys?: string[];
+
+  /**
+   * When true, return the full CreateKeyResult (including all metadata).
+   * When false or omitted (default), return a slim KeySummary.
+   */
+  verbose?: boolean;
+}
+
+/**
+ * Slim key summary returned by createKey() and getKey() when verbose is false (default).
+ * Contains only the fields needed to identify the key and reconstruct its policy.
+ */
+export interface KeySummary {
+  /** Key index within the org (org-scoped, starts at 0). */
+  keyIndex: number;
+  /** Policy root hash (hex). */
+  policyRoot: string;
+  /** BIP-328 xpub for deriving the P2TR address. */
+  bip328Xpub: string;
+  /** Compiled POET policy as a parsed JSON object. */
+  poetJSON: object;
 }
 
 /**
