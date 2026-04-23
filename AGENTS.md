@@ -10,6 +10,36 @@ was taken.
 
 ---
 
+## Step 0: Detect existing state (always run this first)
+
+Before doing anything else, check whether credentials and keys already exist.
+
+**Check for credentials** — look for any of:
+- `.env` file containing `SIGBASH_API_KEY`, `SIGBASH_USER_KEY`, `SIGBASH_SECRET_KEY`
+- Those same variables in the environment
+- A running server responding to `GET /health`
+
+**If credentials exist**, list existing keys immediately:
+```bash
+# HTTP server already running:
+curl -s http://localhost:3000/keys
+
+# TypeScript SDK:
+const keys = await client.listKeys();
+```
+
+**Branch on result:**
+
+| State | Action |
+|---|---|
+| Credentials exist, keys exist | Ask: "What would you like to do? (sign a transaction, add a new key, list keys, etc.)" — **do not start the policy flow** |
+| Credentials exist, no keys yet | Skip to Step 3 (key creation + policy) |
+| No credentials | Start at Step 1 |
+
+**Never assume a first-time flow.** If credentials are present, treat the user as returning.
+
+---
+
 ## Step 1: Choose an integration path
 
 Check whether this is a TypeScript/JavaScript project:
@@ -135,6 +165,10 @@ If they say yes, show this table verbatim:
 
 Full param details: `docs/policy-reference.md`
 
+**STOP. Do not write or run any key-creation code until the user has explicitly
+described their spending policy. Do not use the example policy below as a
+default. Ask: "What spending rules should this key enforce?"**
+
 ```bash
 npm install @sigbash/sdk
 ```
@@ -147,9 +181,9 @@ await loadWasm({ wasmUrl: 'https://www.sigbash.com/sigbash.wasm' });
 
 const client = new SigbashClient({ serverUrl: 'https://www.sigbash.com', apiKey, userKey, userSecretKey });
 
-// Register a key with a policy
+// Register a key — replace the policy below with the one the user specified
 const { keyId, p2trAddress } = await client.createKey({
-  policy: conditionConfigToPoetPolicy({ type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 10_000 }),
+  policy: conditionConfigToPoetPolicy(/* USER'S POLICY HERE — do not substitute the example */),
   network: 'signet',   // signet only by default — see mainnet note below
   require2FA: false,
 });
@@ -254,6 +288,10 @@ If they say yes, show this table verbatim:
 | `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT` | `commitment` (hex) | BIP-443 output scriptPubKey commitment |
 
 Full param details: `docs/policy-reference.md`
+
+**STOP. Do not write or run any key-creation command until the user has
+explicitly described their spending policy. Ask: "What spending rules should
+this key enforce?"**
 
 **Register a key:**
 
