@@ -866,3 +866,164 @@ const policy = conditionConfigToPoetPolicy({
   ],
 });
 ```
+
+### Weekly spending limit
+
+Reset every Monday at midnight UTC, max 10 signing sessions, each output capped at 50k sats:
+
+```typescript
+const policy = conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    { type: 'COUNT_BASED_CONSTRAINT', max_uses: 10, reset_interval: 'weekly', reset_type: 'calendar' },
+    { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
+    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 5_000 },
+  ],
+});
+```
+
+Use `reset_type: 'rolling'` instead to count 7 days from the first use rather than resetting on a fixed calendar day.
+
+---
+
+### Blacklist: block known-bad output addresses
+
+Wrap `OUTPUT_DEST_IS_IN_SETS` in `NOT` to turn an allowlist into a blocklist. Any transaction
+sending to a blacklisted address will be rejected regardless of other conditions:
+
+```typescript
+const BLACKLISTED_ADDRESSES = [
+  'tb1qsuspect1...',
+  'tb1qsuspect2...',
+  'tb1qmixer...',
+];
+
+const policy = conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    // Block outputs to any blacklisted address
+    {
+      logic: 'NOT',
+      child: {
+        type: 'OUTPUT_DEST_IS_IN_SETS',
+        selector: 'ANY',
+        addresses: BLACKLISTED_ADDRESSES,
+        network: 'signet',
+      },
+    },
+    // Optional: also block inputs from tainted sources
+    {
+      logic: 'NOT',
+      child: {
+        type: 'INPUT_SOURCE_IS_IN_SETS',
+        selector: 'ANY',
+        addresses: BLACKLISTED_ADDRESSES,
+        network: 'signet',
+      },
+    },
+  ],
+});
+```
+
+---
+
+### Inheritance: owner always, heir after time-lock
+
+The owner key can sign at any time. After a specified date (e.g. 2 years from now), a
+designated heir key can also sign — but only within a monthly rate limit and per-transaction
+spending cap, preventing a single large sweep:
+
+```typescript
+const OWNER_KEY  = 'aabbccdd...64hex';  // owner x-only pubkey
+const HEIR_KEY   = '11223344...64hex';  // heir x-only pubkey
+const UNLOCK_AT  = 1956528000;          // Unix ts: ~2032-01-01
+
+const policy = conditionConfigToPoetPolicy({
+  logic: 'OR',
+  conditions: [
+    // Owner — unrestricted, always valid
+    { type: 'REQKEY', key_identifier: OWNER_KEY, key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+
+    // Heir — only after unlock date, rate-limited, capped per transaction
+    {
+      logic: 'AND',
+      conditions: [
+        { type: 'REQKEY', key_identifier: HEIR_KEY, key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+        { type: 'TIME_BASED_CONSTRAINT', constraint_type: 'after', start_time: UNLOCK_AT },
+        { type: 'COUNT_BASED_CONSTRAINT', max_uses: 4, reset_interval: 'monthly', reset_type: 'calendar' },
+        { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 10_000_000 },
+      ],
+    },
+  ],
+});
+```
+
+---
+
+### BIP-443 two-step vault
+
+Emulates Salvatore Ingala's OP_VAULT design without a soft fork. Enforced today via the
+oblivious cosigner's ZK policy predicate. The vault UTXO carries a committed state value;
+the policy enforces valid state transitions.
+
+**Two signing paths:**
+
+- **Trigger (TX1)**: input carries initial state `d0` (32 zero bytes) → output carries `d1`
+  (`5120 ‖ outputKey`, a P2TR witness program). The server stores `d1` after the block
+  confirms.
+- **Complete (TX2)**: input carries `d1` (resolved from server-stored covenant state) →
+  funds released to any destination.
+
+A plain UTXO cannot satisfy `INPUT_COMMITTED_DATA_VERIFY` because its scriptPubKey does not
+encode the expected state commitment — the attack path demonstrated in the demo is rejected at
+the proof stage, before the cosigner is even contacted.
+
+```typescript
+// Replace with the actual 32-byte taptree merkle root of the vault script
+const VAULT_SCRIPT_TREE_ROOT = 'aaaa...64hexchars';
+
+// d0: initial vault state — 32 zero bytes
+const D0 = '00'.repeat(32);
+
+const policy = conditionConfigToPoetPolicy({
+  logic: 'OR',
+  conditions: [
+    // ── Path 1: Trigger (TX1) ────────────────────────────────────────────────
+    // Input must carry d0; output must carry d1 (the key commitment).
+    // After this transaction confirms, the server stores d1 as SIGBASH_COVENANT_STATE.
+    {
+      logic: 'AND',
+      conditions: [
+        {
+          type: 'INPUT_COMMITTED_DATA_VERIFY',
+          input_index: 0,
+          witness_data_hex: D0,                    // must match deposited state
+          script_tree_root: VAULT_SCRIPT_TREE_ROOT,
+          validation_mode: 'bip443_covenant',
+        },
+        {
+          type: 'OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT',
+          output_index: 0,
+          committed_data_hex: '5120SIGBASH_OUTPUT_KEY',  // d1: P2TR witness program, resolved at signing
+          script_tree_root: VAULT_SCRIPT_TREE_ROOT,
+          validation_mode: 'bip443_covenant',
+        },
+      ],
+    },
+
+    // ── Path 2: Complete (TX2) ───────────────────────────────────────────────
+    // Input must carry d1, fetched from server-stored covenant state.
+    // Satisfied only after TX1 has confirmed and d1 has been stored.
+    {
+      type: 'INPUT_COMMITTED_DATA_VERIFY',
+      input_index: 0,
+      witness_data_hex: 'SIGBASH_COVENANT_STATE',   // resolved at signing time from server
+      script_tree_root: VAULT_SCRIPT_TREE_ROOT,
+      validation_mode: 'bip443_covenant',
+    },
+  ],
+});
+```
+
+See [`demos/bip443-vault-demo.js`](../demos/bip443-vault-demo.js) for a runnable end-to-end
+example including deposit, trigger, completion, and a failed attack attempt.

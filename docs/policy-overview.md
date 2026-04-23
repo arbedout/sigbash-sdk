@@ -59,3 +59,18 @@ Some parameter values are not available at policy-registration time and are reso
 **At signing time** (PSBT-derived) — in BIP-443 data fields: `SIGBASH_INTERNAL_KEY`, `SIGBASH_OUTPUT_KEY`, `SIGBASH_NUMS_KEY`, `SIGBASH_COVENANT_STATE`. Index `-1` = same index as the input being signed. `script_tree_root: 'SELF'` = same taptree as current policy.
 
 Full param details: [policy-reference.md](./policy-reference.md)
+
+## Common policy patterns
+
+| Pattern | Key conditions | Notes |
+|---|---|---|
+| Spending cap + daily limit | `OUTPUT_VALUE` LTE + `COUNT_BASED_CONSTRAINT` daily | Most common hot-wallet pattern |
+| Weekly budget | `COUNT_BASED_CONSTRAINT` weekly + `OUTPUT_VALUE` LTE | Use `reset_type: 'calendar'` to reset on Monday |
+| Destination allowlist | `OUTPUT_DEST_IS_IN_SETS` ALL | Wrap in `NOT` for blocklist |
+| Input blocklist | `NOT(INPUT_SOURCE_IS_IN_SETS)` | Block tainted/mixer sources |
+| Business hours | `TIME_BASED_CONSTRAINT` within + `active_days` | `start_hour`/`end_hour` in UTC |
+| Inheritance | `OR(REQKEY owner, AND(REQKEY heir, TIME_BASED_CONSTRAINT after, COUNT_BASED_CONSTRAINT))` | Heir unlocks after date with rate limit |
+| Wallet self-consolidation | `DERIVED_NO_NEW_OUTPUTS` + `use_descriptor: true` | `descriptor_template` filled at registration |
+| BIP-443 two-step vault | `OR(AND(INPUT_CCV d0, OUTPUT_COMM d1), INPUT_CCV SIGBASH_COVENANT_STATE)` | See `demos/bip443-vault-demo.js` |
+| Admin override | `IMPLIES(NOT(REQKEY admin), OUTPUT_VALUE LTE cap)` | Admin bypasses; others are capped |
+| Tiered limits | `OR(AND(small-cap, daily-limit), REQKEY admin)` | Two tiers of access |
