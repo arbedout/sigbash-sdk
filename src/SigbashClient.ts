@@ -491,7 +491,13 @@ export class SigbashClient {
       );
     }
 
-    return data.keys ?? [];
+    const items = data.keys ?? [];
+    const summaries = await Promise.all(items.map(item => this.getKey(item.keyId)));
+    return items.map((item, i) => ({
+      ...item,
+      bip328Xpub: summaries[i].bip328Xpub,
+      poetJSON: summaries[i].poetJSON,
+    }));
   }
 
   /**
@@ -823,6 +829,7 @@ export class SigbashClient {
 
     if (!options.verbose) {
       return {
+        keyId: response.key_id,
         keyIndex,
         policyRoot,
         bip328Xpub,
@@ -925,6 +932,7 @@ export class SigbashClient {
 
     if (!opts?.verbose) {
       return {
+        keyId,
         keyIndex,
         policyRoot: response.policy_root,
         bip328Xpub: (kmcObj.bip328_xpub as string) ?? '',

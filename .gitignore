@@ -5,5 +5,6 @@ dist/
 .env
 coverage/
 test-results/
+test-docker.js
 .vscode/
 .idea/

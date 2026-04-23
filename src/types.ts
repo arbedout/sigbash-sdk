@@ -203,9 +203,15 @@ export interface KeyListItem {
   require2FA: boolean;
   /** ISO-8601 creation timestamp. */
   createdAt: string | null;
+  /** BIP-328 xpub for deriving the P2TR address. */
+  bip328Xpub: string;
+  /** Compiled POET policy as a parsed JSON object. */
+  poetJSON: object;
 }
 
 export interface KeySummary {
+  /** Server-assigned key identifier. */
+  keyId: string;
   /** Key index within the org (org-scoped, starts at 0). */
   keyIndex: number;
   /** Policy root hash (hex). */
