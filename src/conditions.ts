@@ -478,23 +478,52 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
   TIME_BASED_CONSTRAINT: {
     description:
       'Restricts signing to a wall-clock time window. Use constraint_type "after" for unlock-after, ' +
-      '"before" for expiry, or combine both in an AND node for a window.',
+      '"before" for expiry, or "within" for a recurring daily window on specific days of the week ' +
+      '(e.g. weekdays only, Fridays only, weekends only).',
     requiresSelector: false,
     params: {
       constraint_type: {
         type: 'string',
-        description: '"after" — signing allowed after start_time; "before" — signing allowed before end_time.',
+        description:
+          '"after" — signing allowed after start_time; ' +
+          '"before" — signing allowed before end_time; ' +
+          '"within" — signing allowed during a daily time range on selected days of the week.',
         required: true,
-        enum: ['after', 'before'],
+        enum: ['after', 'before', 'within'],
       },
       start_time: {
         type: 'number',
-        description: 'UNIX timestamp (seconds). Required when constraint_type is "after".',
+        description: 'UNIX timestamp (seconds). Required for "after" and "within".',
         required: false,
       },
       end_time: {
         type: 'number',
-        description: 'UNIX timestamp (seconds). Required when constraint_type is "before".',
+        description: 'UNIX timestamp (seconds). Required for "before" and "within".',
+        required: false,
+      },
+      active_days: {
+        type: 'number[]',
+        description: 'Days of week allowed to sign: 1 = Mon, 2 = Tue, …, 6 = Sat, 7 = Sun. Required for "within".',
+        required: false,
+      },
+      start_hour: {
+        type: 'string',
+        description: 'Start of daily window, "HH:MM" UTC. Required for "within".',
+        required: false,
+      },
+      end_hour: {
+        type: 'string',
+        description: 'End of daily window, "HH:MM" UTC. Required for "within".',
+        required: false,
+      },
+      start_date_within: {
+        type: 'string',
+        description: 'ISO date "YYYY-MM-DD" — human-readable alias for start_time. Required for "within".',
+        required: false,
+      },
+      end_date_within: {
+        type: 'string',
+        description: 'ISO date "YYYY-MM-DD" — human-readable alias for end_time. Required for "within".',
         required: false,
       },
     },

@@ -102,15 +102,16 @@ expiring keys or time-limited authorizations.
 }
 ```
 
-### `'within'` — recurring time window
+### `'within'` — recurring time window with day-of-week filter
 
-Signing is allowed only during specific hours on specific days. Use this for
-business-hours-only policies.
+Signing is allowed only during a specific daily time range on selected days of the
+week. `active_days` accepts any subset of days, so you can express weekdays,
+Fridays only, weekends, or any custom schedule.
 
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `constraint_type` | `'within'` | yes | |
-| `active_days` | `number[]` | yes | Days of week (1 = Monday, 7 = Sunday) |
+| `active_days` | `number[]` | yes | Days of week: 1 = Mon, 2 = Tue, …, 6 = Sat, 7 = Sun |
 | `start_hour` | `string` | yes | Start of daily window, `"HH:MM"` UTC |
 | `end_hour` | `string` | yes | End of daily window, `"HH:MM"` UTC |
 | `start_time` | `number` | yes | UNIX timestamp — earliest date the rule is active |
@@ -119,22 +120,48 @@ business-hours-only policies.
 | `end_date_within` | `string` | yes | ISO date `"YYYY-MM-DD"` for `end_time` |
 
 ```typescript
-// Monday–Friday, 9 AM–5 PM EST (14:00–22:00 UTC)
+// Weekdays only, 9 AM–5 PM EST (14:00–22:00 UTC)
 {
   type: 'TIME_BASED_CONSTRAINT',
   constraint_type: 'within',
-  active_days: [1, 2, 3, 4, 5],
+  active_days: [1, 2, 3, 4, 5],   // Mon–Fri
   start_hour: '14:00',
   end_hour: '22:00',
-  start_time: 1713571200,          // policy activation date (UNIX)
-  end_time: 7022323200,            // policy expiry date (UNIX)
-  start_date_within: '2025-04-20', // ISO date for start_time
-  end_date_within: '2225-04-20',   // ISO date for end_time
+  start_time: 1713571200,
+  end_time: 7022323200,
+  start_date_within: '2025-04-20',
+  end_date_within: '2225-04-20',
+}
+
+// Fridays only, any hour
+{
+  type: 'TIME_BASED_CONSTRAINT',
+  constraint_type: 'within',
+  active_days: [5],                // Friday only
+  start_hour: '00:00',
+  end_hour: '23:59',
+  start_time: 1713571200,
+  end_time: 7022323200,
+  start_date_within: '2025-04-20',
+  end_date_within: '2225-04-20',
+}
+
+// Weekends only
+{
+  type: 'TIME_BASED_CONSTRAINT',
+  constraint_type: 'within',
+  active_days: [6, 7],             // Sat + Sun
+  start_hour: '00:00',
+  end_hour: '23:59',
+  start_time: 1713571200,
+  end_time: 7022323200,
+  start_date_within: '2025-04-20',
+  end_date_within: '2225-04-20',
 }
 ```
 
-> **Tip:** The `business-hours-only` template handles the `within` boilerplate
-> for you — see [Creating Keys](./creating-keys.md).
+> **Tip:** The `business-hours-only` template generates `within` boilerplate for
+> standard weekday business hours — see [Creating Keys](./creating-keys.md).
 
 ### Combining `'after'` + `'before'` for a bounded window
 

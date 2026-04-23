@@ -387,7 +387,13 @@ Rate-limits signing sessions using a server-side nullifier counter. When `max_us
 
 #### `TIME_BASED_CONSTRAINT`
 
-Restricts signing to a wall-clock time window. Use `'after'` for unlock-after, `'before'` for expiry, or combine both in an AND node for a bounded window.
+Restricts signing to a wall-clock time window. Three modes are available:
+
+- **`'after'`** — signing allowed only after a UNIX timestamp (unlock-after / inheritance)
+- **`'before'`** — signing allowed only before a UNIX timestamp (expiry / time-limited keys)
+- **`'within'`** — signing allowed only during specific hours on specific days of the week
+
+**`'after'` and `'before'`**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -402,6 +408,67 @@ Restricts signing to a wall-clock time window. Use `'after'` for unlock-after, `
 // Signing expires after Dec 31 2025
 { type: 'TIME_BASED_CONSTRAINT', constraint_type: 'before', end_time: 1767225600 }
 ```
+
+**`'within'` — recurring time window with day-of-week filter**
+
+Restricts signing to a daily time range on selected days of the week. `active_days`
+accepts any subset of days — use it for business hours, Fridays only, weekends, or
+any other recurring schedule.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `constraint_type` | `'within'` | yes | |
+| `active_days` | `number[]` | yes | Days of week: 1 = Mon, 2 = Tue, …, 6 = Sat, 7 = Sun |
+| `start_hour` | `string` | yes | Start of daily window, `"HH:MM"` UTC |
+| `end_hour` | `string` | yes | End of daily window, `"HH:MM"` UTC |
+| `start_time` | `number` | yes | UNIX timestamp — earliest date the rule is active |
+| `end_time` | `number` | yes | UNIX timestamp — latest date the rule is active |
+| `start_date_within` | `string` | yes | ISO date `"YYYY-MM-DD"` (human-readable alias for `start_time`) |
+| `end_date_within` | `string` | yes | ISO date `"YYYY-MM-DD"` (human-readable alias for `end_time`) |
+
+```typescript
+// Weekdays only, 9 AM–5 PM EST (14:00–22:00 UTC)
+{
+  type: 'TIME_BASED_CONSTRAINT',
+  constraint_type: 'within',
+  active_days: [1, 2, 3, 4, 5],   // Mon–Fri
+  start_hour: '14:00',
+  end_hour: '22:00',
+  start_time: 1713571200,
+  end_time: 7022323200,
+  start_date_within: '2025-04-20',
+  end_date_within: '2225-04-20',
+}
+
+// Fridays only, any hour
+{
+  type: 'TIME_BASED_CONSTRAINT',
+  constraint_type: 'within',
+  active_days: [5],                // Friday only
+  start_hour: '00:00',
+  end_hour: '23:59',
+  start_time: 1713571200,
+  end_time: 7022323200,
+  start_date_within: '2025-04-20',
+  end_date_within: '2225-04-20',
+}
+
+// Weekends only
+{
+  type: 'TIME_BASED_CONSTRAINT',
+  constraint_type: 'within',
+  active_days: [6, 7],             // Sat + Sun
+  start_hour: '00:00',
+  end_hour: '23:59',
+  start_time: 1713571200,
+  end_time: 7022323200,
+  start_date_within: '2025-04-20',
+  end_date_within: '2225-04-20',
+}
+```
+
+> **Tip:** The `business-hours-only` template generates `within` boilerplate for
+> weekday business hours — see [Creating Keys](./creating-keys.md).
 
 ---
 
