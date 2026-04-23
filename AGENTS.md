@@ -113,55 +113,10 @@ SIGBASH_SECRET_KEY=<64-char hex>
 > MAJORITY, XOR, VETO, and more) and 22 condition types covering output
 > values, fees, input/output counts, address allowlists, timelocks, rate
 > limits, key requirements, RBF flags, sighash types, and BIP-443 covenant
-> checks. Would you like to see the full list before deciding?"
+> checks. You can say 'details' to see the full list, or try describing the
+> policy you want if you're already familiar with the policy logic."
 
-If they say yes, show this table verbatim:
-
-**Operators** (`k` = integer param; aliases accepted by `conditionConfigToPoetPolicy`):
-
-| Operator | Alias | Params | Meaning |
-|---|---|---|---|
-| `AND` | — | — | All children satisfied |
-| `OR` | — | — | At least one child satisfied |
-| `NOT` | — | — | Child must NOT be satisfied |
-| `IMPLIES` | — | — | If child[0] satisfied → child[1] must be too |
-| `IFF` | — | — | child[0] ↔ child[1] |
-| `VETO` | — | — | If child[0] (trigger) satisfied, rest are blocked |
-| `NOR` | — | — | None of the children satisfied |
-| `NAND` | — | — | Not all children satisfied simultaneously |
-| `XOR` | — | — | Exactly one child satisfied |
-| `THRESHOLD` | `THRESH` | `k` | At least k of n children satisfied |
-| `WEIGHTED_THRESHOLD` | `WTHRESH` | `k` | Weighted sum of satisfied children ≥ k |
-| `MAJORITY` | — | — | More than half of children satisfied |
-| `EXACTLY` | `EXACT` | `k` | Exactly k children satisfied |
-| `AT_MOST` | `ATMOST` | `k` | At most k children satisfied |
-
-**Conditions** (`selector`: `ALL` \| `ANY` \| `{type:'INDEX',index:N}`; `operator`: `EQ` `NEQ` `LT` `LTE` `GT` `GTE`):
-
-| Condition | Key params | Description |
-|---|---|---|
-| `OUTPUT_VALUE` | `selector`, `operator`, `value` (sats) | Output satoshi value |
-| `INPUT_VALUE` | `selector`, `operator`, `value` (sats) | Input satoshi value |
-| `TX_FEE_ABSOLUTE` | `operator`, `value` (sats) | Absolute fee (inputs − outputs) |
-| `TX_VERSION` | `operator`, `value` | Transaction version field |
-| `TX_LOCKTIME` | `operator`, `value` | nLockTime (<500 M = block height, ≥500 M = UNIX ts) |
-| `TX_INPUT_COUNT` | `operator`, `value` | Number of inputs |
-| `TX_OUTPUT_COUNT` | `operator`, `value` | Number of outputs |
-| `INPUT_SEQUENCE` | `selector`, `operator`, `value` | nSequence (e.g. `0xFFFFFFFD` = RBF) |
-| `INPUT_SIGHASH_TYPE` | `selector`, `sighash_type` | Sighash type (`SIGHASH_ALL` `SIGHASH_NONE` `SIGHASH_SINGLE` + `ANYONECANPAY_*` variants) |
-| `OUTPUT_DEST_IS_IN_SETS` | `addresses[]`, `network`, `selector` | Output destination in approved address set; wrap in NOT for blocklist |
-| `INPUT_SOURCE_IS_IN_SETS` | `addresses[]` or `descriptor_template`+`use_descriptor`, `network`, `selector` | Input source in permitted address set |
-| `REQKEY` | `key_identifier` (64-hex x-only pubkey), `key_type` (`TAP_LEAF_XONLY_PUBKEY` \| `TAP_LEAF_SCRIPT_HASH`) | Key present in tapscript path (ZK set-membership, signer-oblivious) |
-| `COUNT_BASED_CONSTRAINT` | `max_uses`, `reset_interval` (`never` `daily` `weekly` `monthly`), `reset_type` (`rolling` \| `calendar`) | Rate-limit signing sessions via nullifier counter |
-| `TIME_BASED_CONSTRAINT` | `constraint_type` (`after` \| `before` \| `within`); for `within`: `active_days[]` (1=Mon…7=Sun), `start_hour`, `end_hour`, `start_time`, `end_time` | Wall-clock window restriction |
-| `OUTPUT_OP_RETURN` | `selector` | OP_RETURN output present |
-| `DERIVED_IS_CONSOLIDATION` | `expected_value` (bool) | More inputs than outputs |
-| `DERIVED_RBF_ENABLED` | `expected_value` (bool) | At least one input signals RBF |
-| `DERIVED_NO_NEW_OUTPUTS` | `expected_value` (bool) | All output addresses already seen as inputs |
-| `DERIVED_SIGHASH_TYPE` | `sighash_type` | Derived/effective sighash type for the transaction |
-| `TX_TEMPLATE_HASH_MATCHES` | `template_hash` (64-hex), `input_index` | Tx matches pre-committed template (version, locktime, sequences, outputs) |
-| `INPUT_COMMITTED_DATA_VERIFY` | `committed_data` (hex) | BIP-443 annex committed data check |
-| `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT` | `commitment` (hex) | BIP-443 output scriptPubKey commitment |
+If they say "details", read `docs/policy-overview.md` and show its contents verbatim.
 
 Full param details: `docs/policy-reference.md`
 
@@ -195,6 +150,72 @@ if (result.success) console.log(result.txHex);
 ```
 
 Full reference: [docs/getting-started.md](docs/getting-started.md)
+
+**Policy examples** (reference only — always build from what the user asks):
+
+```typescript
+// Spending cap + daily rate limit
+conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 100_000 },
+    { type: 'COUNT_BASED_CONSTRAINT', max_uses: 3, reset_interval: 'daily', reset_type: 'rolling' },
+  ],
+})
+
+// Destination allowlist (wrap in NOT for blocklist)
+conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    { type: 'OUTPUT_DEST_IS_IN_SETS', selector: 'ALL',
+      addresses: ['tb1qtreasury...', 'tb1qops...'], network: 'signet' },
+    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 5_000 },
+  ],
+})
+
+// Wallet self-consolidation via descriptor (SIGBASH_XPUB filled at registration)
+conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    { type: 'DERIVED_NO_NEW_OUTPUTS', expected_value: true,
+      use_descriptor: true, descriptor_template: 'tr(SIGBASH_XPUB/0/*)' },
+    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 5_000 },
+  ],
+})
+
+// Business hours only (Mon–Fri 09:00–17:00 UTC)
+conditionConfigToPoetPolicy({
+  type: 'TIME_BASED_CONSTRAINT',
+  constraint_type: 'within',
+  active_days: [1,2,3,4,5],
+  start_hour: '09:00', end_hour: '17:00',
+  start_time: 1713571200, end_time: 7022323200,
+  start_date_within: '2025-04-20', end_date_within: '2225-04-20',
+})
+
+// Inheritance: admin key OR time-lock after 2030
+conditionConfigToPoetPolicy({
+  logic: 'OR',
+  conditions: [
+    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+    { type: 'TIME_BASED_CONSTRAINT', constraint_type: 'after', start_time: 1893456000 },
+  ],
+})
+
+// Tiered: small amounts unrestricted (with cap), large amounts need admin key
+conditionConfigToPoetPolicy({
+  logic: 'OR',
+  conditions: [
+    { logic: 'AND', conditions: [
+        { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
+        { type: 'COUNT_BASED_CONSTRAINT', max_uses: 5, reset_interval: 'daily' },
+    ]},
+    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+  ],
+})
+```
+
+More examples and full param reference: [docs/policy-reference.md](docs/policy-reference.md)
 
 ---
 
@@ -239,53 +260,7 @@ Credentials can be provided three ways (resolved in this order):
 > limits, key requirements, RBF flags, sighash types, and BIP-443 covenant
 > checks. Would you like to see the full list before deciding?"
 
-If they say yes, show this table verbatim:
-
-**Operators** (`k` = integer param; aliases accepted by the policy JSON):
-
-| Operator | Alias | Params | Meaning |
-|---|---|---|---|
-| `AND` | — | — | All children satisfied |
-| `OR` | — | — | At least one child satisfied |
-| `NOT` | — | — | Child must NOT be satisfied |
-| `IMPLIES` | — | — | If child[0] satisfied → child[1] must be too |
-| `IFF` | — | — | child[0] ↔ child[1] |
-| `VETO` | — | — | If child[0] (trigger) satisfied, rest are blocked |
-| `NOR` | — | — | None of the children satisfied |
-| `NAND` | — | — | Not all children satisfied simultaneously |
-| `XOR` | — | — | Exactly one child satisfied |
-| `THRESHOLD` | `THRESH` | `k` | At least k of n children satisfied |
-| `WEIGHTED_THRESHOLD` | `WTHRESH` | `k` | Weighted sum of satisfied children ≥ k |
-| `MAJORITY` | — | — | More than half of children satisfied |
-| `EXACTLY` | `EXACT` | `k` | Exactly k children satisfied |
-| `AT_MOST` | `ATMOST` | `k` | At most k children satisfied |
-
-**Conditions** (`selector`: `ALL` \| `ANY` \| `{type:'INDEX',index:N}`; `operator`: `EQ` `NEQ` `LT` `LTE` `GT` `GTE`):
-
-| Condition | Key params | Description |
-|---|---|---|
-| `OUTPUT_VALUE` | `selector`, `operator`, `value` (sats) | Output satoshi value |
-| `INPUT_VALUE` | `selector`, `operator`, `value` (sats) | Input satoshi value |
-| `TX_FEE_ABSOLUTE` | `operator`, `value` (sats) | Absolute fee (inputs − outputs) |
-| `TX_VERSION` | `operator`, `value` | Transaction version field |
-| `TX_LOCKTIME` | `operator`, `value` | nLockTime (<500 M = block height, ≥500 M = UNIX ts) |
-| `TX_INPUT_COUNT` | `operator`, `value` | Number of inputs |
-| `TX_OUTPUT_COUNT` | `operator`, `value` | Number of outputs |
-| `INPUT_SEQUENCE` | `selector`, `operator`, `value` | nSequence (e.g. `0xFFFFFFFD` = RBF) |
-| `INPUT_SIGHASH_TYPE` | `selector`, `sighash_type` | Sighash type (`SIGHASH_ALL` `SIGHASH_NONE` `SIGHASH_SINGLE` + `ANYONECANPAY_*` variants) |
-| `OUTPUT_DEST_IS_IN_SETS` | `addresses[]`, `network`, `selector` | Output destination in approved address set; wrap in NOT for blocklist |
-| `INPUT_SOURCE_IS_IN_SETS` | `addresses[]` or `descriptor_template`+`use_descriptor`, `network`, `selector` | Input source in permitted address set |
-| `REQKEY` | `key_identifier` (64-hex x-only pubkey), `key_type` (`TAP_LEAF_XONLY_PUBKEY` \| `TAP_LEAF_SCRIPT_HASH`) | Key present in tapscript path (ZK set-membership, signer-oblivious) |
-| `COUNT_BASED_CONSTRAINT` | `max_uses`, `reset_interval` (`never` `daily` `weekly` `monthly`), `reset_type` (`rolling` \| `calendar`) | Rate-limit signing sessions via nullifier counter |
-| `TIME_BASED_CONSTRAINT` | `constraint_type` (`after` \| `before` \| `within`); for `within`: `active_days[]` (1=Mon…7=Sun), `start_hour`, `end_hour`, `start_time`, `end_time` | Wall-clock window restriction |
-| `OUTPUT_OP_RETURN` | `selector` | OP_RETURN output present |
-| `DERIVED_IS_CONSOLIDATION` | `expected_value` (bool) | More inputs than outputs |
-| `DERIVED_RBF_ENABLED` | `expected_value` (bool) | At least one input signals RBF |
-| `DERIVED_NO_NEW_OUTPUTS` | `expected_value` (bool) | All output addresses already seen as inputs |
-| `DERIVED_SIGHASH_TYPE` | `sighash_type` | Derived/effective sighash type for the transaction |
-| `TX_TEMPLATE_HASH_MATCHES` | `template_hash` (64-hex), `input_index` | Tx matches pre-committed template (version, locktime, sequences, outputs) |
-| `INPUT_COMMITTED_DATA_VERIFY` | `committed_data` (hex) | BIP-443 annex committed data check |
-| `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT` | `commitment` (hex) | BIP-443 output scriptPubKey commitment |
+If they say yes, read `docs/policy-overview.md` and show its contents verbatim.
 
 Full param details: `docs/policy-reference.md`
 
@@ -363,8 +338,15 @@ All keys are **signet only** by default. To enable mainnet for your org:
 
 ## Further reading
 
-- [docs/getting-started.md](docs/getting-started.md) — full TypeScript walkthrough
-- [docs/server.md](docs/server.md) — HTTP server reference with curl examples
-- [docs/policy-reference.md](docs/policy-reference.md) — all policy operators and condition types
-- [docs/authentication.md](docs/authentication.md) — credential model and security properties
-- [docs/recovery.md](docs/recovery.md) — recovery kit export and import
+Consult these docs when you need more detail — do not guess at parameter schemas:
+
+| Question / task | Read |
+|---|---|
+| Full TypeScript SDK walkthrough | [docs/getting-started.md](docs/getting-started.md) |
+| HTTP server curl reference | [docs/server.md](docs/server.md) |
+| All condition types, operator params, full examples | [docs/policy-reference.md](docs/policy-reference.md) |
+| Placeholder values (`SIGBASH_XPUB`, `SIGBASH_OUTPUT_KEY`, index `-1`, `SELF`) | [docs/policy-reference.md § Runtime-resolved placeholders](docs/policy-reference.md#runtime-resolved-placeholders) |
+| Credential model, security properties | [docs/authentication.md](docs/authentication.md) |
+| Recovery kit export and import | [docs/recovery.md](docs/recovery.md) |
+| Nullifier counters and rate-limit semantics | [docs/nullifiers.md](docs/nullifiers.md) |
+| Verifying proof bundles | [docs/verifying.md](docs/verifying.md) |

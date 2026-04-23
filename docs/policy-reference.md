@@ -135,6 +135,62 @@ Used by value and count conditions (`OUTPUT_VALUE`, `TX_FEE_ABSOLUTE`, `TX_INPUT
 
 ---
 
+## Runtime-resolved placeholders
+
+Some condition parameters cannot be known at policy-registration time. They are
+resolved in one of two phases:
+
+### Resolved at key-registration time — `SIGBASH_XPUB`
+
+The `descriptor_template` parameter accepts `SIGBASH_XPUB` as a placeholder
+for the BIP-328 extended public key assigned to the key at registration time.
+The server substitutes the real xpub and derives the address set once, when
+the key is created — **not** at signing time.
+
+Conditions that support descriptor mode (enabled by `use_descriptor: true`):
+
+| Condition | What is derived |
+|---|---|
+| `INPUT_SOURCE_IS_IN_SETS` | Permitted input source addresses |
+| `OUTPUT_DEST_IS_IN_SETS` | Permitted output destination addresses |
+| `DERIVED_NO_NEW_OUTPUTS` | Allowed output address set (wallet self-consolidation) |
+| `REQKEY` | Key identifier derived from wallet descriptor |
+
+Common descriptor templates:
+
+| Template | Script type |
+|---|---|
+| `tr(SIGBASH_XPUB/0/*)` | Single-sig P2TR |
+| `wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)` | Single-sig P2WPKH (BIP-84) |
+| `wsh(multi(2,SIGBASH_XPUB/0/*,COSIGNER_XPUB/0/*))` | 2-of-2 multisig P2WSH |
+
+The optional `derivation_range` parameter (default 1000, range 20–10000)
+controls how many addresses are pre-derived for ZK set-membership proofs.
+
+### Resolved at signing time — BIP-443 data placeholders
+
+The `committed_data_hex` field of `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT` and
+the `witness_data_hex` field of `INPUT_COMMITTED_DATA_VERIFY` support special
+tokens that are substituted from the PSBT at signing time:
+
+| Token | Resolved to |
+|---|---|
+| `SIGBASH_INTERNAL_KEY` | The wallet's internal (x-only) public key |
+| `SIGBASH_OUTPUT_KEY` | The MuSig2 aggregate output key |
+| `SIGBASH_NUMS_KEY` | BIP-341 provably-unspendable NUMS point (keyless contract instances) |
+| `SIGBASH_COVENANT_STATE` | Current covenant state fetched from chain |
+
+**Index `-1` (self-reference):** Setting `output_index` or `input_index` to
+`-1` means "the same index as the input currently being signed." This lets a
+single policy clause apply to any input position.
+
+**`'SELF'` for `script_tree_root`:** The literal string `'SELF'` in
+`script_tree_root` means "use the same taptree as the current policy"
+(BIP-443 taptree=-1 semantics). Required for self-replicating covenant UTXOs
+where the spending script must propagate itself to the output.
+
+---
+
 ## Condition types
 
 All 27 condition types are available in the exported `CONDITION_TYPES` constant:
@@ -358,13 +414,21 @@ Proves that a specific key is present in the tapscript spending path, using a ze
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `key_identifier` | `string` | yes | 64-char hex x-only public key (32 bytes) |
-| `key_type` | `string` | yes | `'TAP_LEAF_XONLY_PUBKEY'` or `'TAP_LEAF_SCRIPT_HASH'` |
+| `key_identifier` | `string` | conditional | 64-char hex x-only public key (32 bytes). Required when `use_descriptor` is `false` |
+| `key_type` | `string` | yes | `'TAP_LEAF_XONLY_PUBKEY'` or `'TAP_KEYPATH_OUTPUTKEY'` |
+| `use_descriptor` | `boolean` | no (default `false`) | When `true`, derive the key from `descriptor_template` instead of using a fixed `key_identifier` |
+| `descriptor_template` | `string` | conditional | BIP-328 descriptor with `SIGBASH_XPUB` placeholder. Required when `use_descriptor` is `true`. Resolved at key-registration time |
 
 ```typescript
+// Fixed key (most common)
 { type: 'REQKEY',
   key_identifier: 'aabbccdd...64hexchars',
   key_type: 'TAP_LEAF_XONLY_PUBKEY' }
+
+// Descriptor-derived key
+{ type: 'REQKEY',
+  key_type: 'TAP_LEAF_XONLY_PUBKEY',
+  use_descriptor: true, descriptor_template: 'tr(SIGBASH_XPUB/0/*)' }
 ```
 
 ---
@@ -526,10 +590,24 @@ True when at least one input signals Replace-By-Fee (`nSequence < 0xFFFFFFFE`).
 
 #### `DERIVED_NO_NEW_OUTPUTS`
 
-True when every output address was already seen as an input address (no new addresses introduced).
+True when every output address was already seen as an input address (self-consolidation mode),
+or — when `use_descriptor` is `true` — when every output address falls within the wallet's
+derived address set.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `expected_value` | `boolean` | yes | `true` to require no new outputs, `false` to require at least one new output |
+| `use_descriptor` | `boolean` | no (default `false`) | When `true`, validate against wallet descriptor instead of input addresses |
+| `descriptor_template` | `string` | conditional | BIP-328 descriptor with `SIGBASH_XPUB` placeholder. Required when `use_descriptor` is `true`. Resolved at key-registration time |
+| `derivation_range` | `number` | no (default `1000`) | Number of addresses to pre-derive (gap limit, 20–10000) |
 
 ```typescript
+// Self-consolidation mode: outputs must match input addresses
 { type: 'DERIVED_NO_NEW_OUTPUTS', expected_value: true }
+
+// Descriptor mode: outputs must be within the wallet's own address set
+{ type: 'DERIVED_NO_NEW_OUTPUTS', expected_value: true,
+  use_descriptor: true, descriptor_template: 'tr(SIGBASH_XPUB/0/*)' }
 ```
 
 #### `DERIVED_SIGHASH_TYPE`
@@ -565,30 +643,66 @@ Checks that the transaction matches a pre-committed template hash covering versi
 
 ### BIP-443 covenant conditions
 
-These conditions support chained tapscript state machines using BIP-443 annex commitments.
-
-#### `INPUT_COMMITTED_DATA_VERIFY`
-
-Verifies that the input contains a specific committed data value in the BIP-443 annex.
-
-| Param | Type | Required | Description |
-|---|---|---|---|
-| `committed_data` | `string` | yes | Hex-encoded committed data blob |
-
-```typescript
-{ type: 'INPUT_COMMITTED_DATA_VERIFY', committed_data: 'deadbeef' }
-```
+These conditions enforce covenant semantics via the oblivious signer — not Bitcoin
+consensus. They are checked against the PSBT at signing time. For the full set of
+runtime-substituted placeholders available in data fields, see [Runtime-resolved
+placeholders](#runtime-resolved-placeholders).
 
 #### `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT`
 
-Verifies that an output `scriptPubKey` matches a pre-committed value (BIP-443 output commitment).
+Validates that an output's `scriptPubKey` matches a BIP-443 covenant commitment.
+Use this to enforce state-carrying UTXOs (vaults, counters, state machines).
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `commitment` | `string` | yes | Hex-encoded expected scriptPubKey |
+| `output_index` | `number` | yes | Zero-based output index. Use `-1` for self-reference (maps to current input index) |
+| `committed_data_hex` | `string` | yes | Hex data to commit (max 1 KB). Accepts placeholders: `SIGBASH_INTERNAL_KEY`, `SIGBASH_OUTPUT_KEY`, `SIGBASH_NUMS_KEY`, `SIGBASH_COVENANT_STATE` |
+| `script_tree_root` | `string` | yes | 32-byte hex taptree root. Use `'SELF'` for taptree self-reference (same script tree as current policy) |
+| `validation_mode` | `string` | yes | `'bip443_covenant'` (full), `'simple_data_tweak'` (taptweak + data), `'taptweak_only'` (basic taproot tweak) |
+| `amount_mode` | `string` | no (default `'ignore'`) | CCV amount semantics: `'ignore'` (CCV mode 1, default), `'preserve'` (CCV mode 0, accumulate input to output minimum), `'deduct'` (CCV mode 2, subtract output from input residual) |
 
 ```typescript
-{ type: 'OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT', commitment: '5120aabbcc...66hexchars' }
+// Enforce a self-replicating vault output (same taptree, same key, state carried forward)
+{
+  type: 'OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT',
+  output_index: -1,             // same index as the input being signed
+  committed_data_hex: 'SIGBASH_OUTPUT_KEY',  // substituted at signing time
+  script_tree_root: 'SELF',     // taptree self-reference
+  validation_mode: 'bip443_covenant',
+  amount_mode: 'preserve',
+}
+```
+
+#### `INPUT_COMMITTED_DATA_VERIFY`
+
+Verifies that an input's witness data matches expected BIP-443 committed data. Use this
+to read and validate the previous covenant state before authorising a state transition.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `input_index` | `number` | yes | Zero-based input index. Use `-1` for self-reference (current input being signed) |
+| `witness_data_hex` | `string` | yes | Expected witness data hex (max 1 KB). Accepts placeholders: `SIGBASH_INTERNAL_KEY`, `SIGBASH_OUTPUT_KEY`, `SIGBASH_NUMS_KEY`, `SIGBASH_COVENANT_STATE` |
+| `script_tree_root` | `string` | yes | 32-byte hex taptree root. Use `'SELF'` for taptree self-reference |
+| `expected_data_length` | `number` | no | Expected byte length of the data (optional extra validation) |
+| `validation_pattern` | `string` | no | Hex pattern for partial matching; `*` is a wildcard (e.g. `'deadbeef****'`) |
+
+```typescript
+// Verify the previous state embedded in the input witness
+{
+  type: 'INPUT_COMMITTED_DATA_VERIFY',
+  input_index: -1,             // self-reference: current input being signed
+  witness_data_hex: 'SIGBASH_COVENANT_STATE',  // substituted at signing time
+  script_tree_root: 'SELF',
+}
+
+// Verify with a partial pattern (first 4 bytes must match, rest ignored)
+{
+  type: 'INPUT_COMMITTED_DATA_VERIFY',
+  input_index: 0,
+  witness_data_hex: 'deadbeef',
+  script_tree_root: 'abc123...64hexchars',
+  validation_pattern: 'deadbeef****',
+}
 ```
 
 ---
@@ -656,5 +770,99 @@ const policy = conditionConfigToPoetPolicy({
 ```typescript
 const policy = conditionConfigToPoetPolicy({
   type: 'DERIVED_NO_NEW_OUTPUTS', expected_value: true,
+});
+```
+
+### Business hours only with daily cap
+
+```typescript
+const policy = conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    {
+      type: 'TIME_BASED_CONSTRAINT',
+      constraint_type: 'within',
+      active_days: [1, 2, 3, 4, 5],   // Mon–Fri
+      start_hour: '09:00',
+      end_hour: '17:00',
+      start_time: 1713571200,
+      end_time: 7022323200,
+      start_date_within: '2025-04-20',
+      end_date_within: '2225-04-20',
+    },
+    { type: 'COUNT_BASED_CONSTRAINT', max_uses: 10, reset_interval: 'daily', reset_type: 'calendar' },
+  ],
+});
+```
+
+### Inheritance unlock: admin key OR time-lock
+
+```typescript
+const policy = conditionConfigToPoetPolicy({
+  logic: 'OR',
+  conditions: [
+    // Admin can always sign
+    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+    // Anyone can sign after 2030-01-01 (Unix: 1893456000)
+    { type: 'TIME_BASED_CONSTRAINT', constraint_type: 'after', start_time: 1893456000 },
+  ],
+});
+```
+
+### Wallet self-consolidation using descriptor
+
+Outputs must go to wallet-owned addresses only, derived from the key's BIP-328 xpub
+at registration time — no hardcoded address list required:
+
+```typescript
+const policy = conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    {
+      type: 'DERIVED_NO_NEW_OUTPUTS',
+      expected_value: true,
+      use_descriptor: true,
+      descriptor_template: 'tr(SIGBASH_XPUB/0/*)',  // SIGBASH_XPUB filled in at registration
+    },
+    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 5_000 },
+  ],
+});
+```
+
+### Tiered spending: small amounts always OK, large amounts require admin key
+
+```typescript
+const policy = conditionConfigToPoetPolicy({
+  logic: 'OR',
+  conditions: [
+    // Tier 1: any output ≤ 50k sats, max 5 per day
+    {
+      logic: 'AND',
+      conditions: [
+        { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
+        { type: 'COUNT_BASED_CONSTRAINT', max_uses: 5, reset_interval: 'daily' },
+      ],
+    },
+    // Tier 2: admin key overrides all limits
+    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+  ],
+});
+```
+
+### Input allowlist: only spend from wallet-owned UTXOs (descriptor mode)
+
+```typescript
+const policy = conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    {
+      type: 'INPUT_SOURCE_IS_IN_SETS',
+      selector: 'ALL',
+      use_descriptor: true,
+      descriptor_template: 'wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)',
+      network: 'signet',
+    },
+    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 10_000 },
+  ],
 });
 ```
