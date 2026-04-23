@@ -114,6 +114,12 @@ docker run --rm -p 3000:3000 sigbash-server
 docker run --rm -p 3000:3000 --env-file .env sigbash-server
 ```
 
+If port 3000 is already in use, pick any free port — e.g. 3001:
+```bash
+docker run --rm -p 3001:3000 -e PORT=3000 sigbash-server
+```
+Replace `3000` with `3001` in all subsequent curl commands.
+
 Credentials can be provided three ways (resolved in this order):
 1. `.env` file in the working directory
 2. Environment variables (`SIGBASH_API_KEY`, `SIGBASH_USER_KEY`, `SIGBASH_SECRET_KEY`, `SIGBASH_SERVER_URL`)
