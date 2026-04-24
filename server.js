@@ -172,6 +172,14 @@ app.post('/admin/recover', async (req, res) => {
   catch (err) { handleError(err, res); }
 });
 
+app.post('/keys/:keyId/update-policy', async (req, res) => {
+  try {
+    const { newPolicyJson } = req.body;
+    res.json(await client(req).adminUpdatePolicy(req.params.keyId, newPolicyJson));
+  }
+  catch (err) { handleError(err, res); }
+});
+
 app.post('/admin/users', async (req, res) => {
   try { await client(req).registerUser(req.body.userKey); res.json({ ok: true }); }
   catch (err) { handleError(err, res); }

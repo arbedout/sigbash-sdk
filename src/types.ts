@@ -186,6 +186,19 @@ export interface CreateKeyOptions {
    * When false or omitted (default), return a slim KeySummary.
    */
   verbose?: boolean;
+
+  /**
+   * When true, marks the key as admin-updateable (policy may be changed via adminUpdatePolicy).
+   */
+  updateable?: boolean;
+}
+
+/**
+ * Options for adminUpdatePolicy().
+ */
+export interface UpdatePolicyOptions {
+  keyId: string;
+  newPolicyJson: string;
 }
 
 /**

@@ -27,6 +27,7 @@ import type {
   VerifyPSBTResult,
   POETPolicy,
   SdkRecoveryKit,
+  UpdatePolicyOptions,
 } from './types';
 
 import {
@@ -807,6 +808,7 @@ export class SigbashClient {
         client_key_commitment_h1: this.#commitmentH1,
         client_key_hash: this.#keyHash,
         enc_kek2,
+        ...(options.updateable === true ? { updateable: true } : {}),
       });
     } catch (err) {
       // Map well-known server error codes
@@ -1803,6 +1805,118 @@ export class SigbashClient {
       keyMaterial: kmc as Record<string, unknown>,
       kmcJSON,
     };
+  }
+
+  /**
+   * Update the POET policy for an existing key.
+   *
+   * The method re-encrypts the KMC with the new policy compiled by WASM, stores
+   * the updated KMC on the server, and notifies the server of the new policy root.
+   *
+   * @param keyId        - The key identifier returned by createKey()
+   * @param newPolicyJson - The new POET v1.1 policy serialised as a JSON string
+   *
+   * @throws SigbashSDKError  with code CLIENT_DISPOSED if the client has been disposed
+   * @throws SigbashSDKError  with code WASM_ERROR if the WASM updatePolicy call fails
+   * @throws AdminError       if the server rejects the request (403)
+   */
+  async adminUpdatePolicy(keyId: string, newPolicyJson: string): Promise<void>;
+  async adminUpdatePolicy(opts: UpdatePolicyOptions): Promise<void>;
+  async adminUpdatePolicy(
+    keyIdOrOpts: string | UpdatePolicyOptions,
+    newPolicyJson?: string,
+  ): Promise<void> {
+    if (this.#disposed) {
+      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+    }
+
+    const keyId = typeof keyIdOrOpts === 'string' ? keyIdOrOpts : keyIdOrOpts.keyId;
+    const policyJson = typeof keyIdOrOpts === 'string' ? (newPolicyJson ?? '') : keyIdOrOpts.newPolicyJson;
+
+    const callerAuthHash = await this._authHash;
+
+    // Fetch and decrypt the current KMC.
+    const keyResult = await this.getKey(keyId, { verbose: true });
+    const decryptedKmc = JSON.parse(keyResult.kmcJSON) as { network: string };
+
+    // Invoke WASM to update the policy inside the KMC.
+    const updatePolicyFn = (globalThis as Record<string, unknown>)['updatePolicy'] as
+      | ((input: string) => string)
+      | undefined;
+    if (typeof updatePolicyFn !== 'function') {
+      throw new SigbashSDKError('WASM updatePolicy function is not available', 'WASM_ERROR');
+    }
+
+    const wasmResult = JSON.parse(
+      updatePolicyFn(
+        JSON.stringify({
+          kmc_json: keyResult.kmcJSON,
+          new_policy_json: policyJson,
+          network: decryptedKmc.network,
+        })
+      )
+    ) as { error?: string; new_kmc_json?: string; new_policy_root_hex?: string };
+
+    if (wasmResult.error) {
+      throw new SigbashSDKError(wasmResult.error, 'WASM_ERROR');
+    }
+
+    // Re-encrypt the updated KMC.
+    const userRecoveryKEK = await deriveUserRecoveryKEK(
+      this._apiKey,
+      this._userKey,
+      this._userSecretKey,
+    );
+    const { envelope, enc_kek2 } = await buildKMCEnvelope(
+      JSON.parse(wasmResult.new_kmc_json!),
+      {
+        apiKey: this._apiKey,
+        userKey: this._userKey,
+        userSecretKey: this._userSecretKey,
+        userRecoveryKEK,
+        authHash: callerAuthHash,
+        network: decryptedKmc.network,
+      }
+    );
+
+    // Store the re-encrypted KMC on the server.
+    const kmcResponse = await fetch(
+      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys/${keyId}/kmc`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_hash: callerAuthHash,
+          encrypted_kmc: JSON.stringify(envelope),
+          enc_kek2,
+        }),
+      }
+    );
+    if (!kmcResponse.ok) {
+      const kmcData = await kmcResponse.json() as { message?: string };
+      throw new SigbashSDKError(
+        kmcData.message ?? `Failed to store updated KMC (HTTP ${kmcResponse.status})`,
+        'SERVER_ERROR',
+      );
+    }
+
+    // Notify the server of the new policy root.
+    const policyResponse = await fetch(
+      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/policy/update`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_hash: callerAuthHash,
+          key_id: parseInt(keyId),
+          new_policy_root: wasmResult.new_policy_root_hex,
+        }),
+      }
+    );
+    if (!policyResponse.ok) {
+      const policyData = await policyResponse.json() as { message?: string };
+      throw new AdminError(policyData.message ?? 'Policy update failed');
+    }
   }
 
 }
