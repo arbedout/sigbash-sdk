@@ -476,4 +476,17 @@ export interface SdkRecoveryKit {
   network: string;
   /** Unix timestamp (seconds) when this kit was generated. */
   createdAt: number;
+  /**
+   * Organisation-level key — combined with userKey to compute the auth_hash
+   * that identifies admin status on the server.  Never transmitted to the
+   * server in plaintext; included here so the kit is self-sufficient for
+   * restoring org access without relying on a separately stored .env file.
+   */
+  apiKey?: string;
+  /**
+   * User identifier — combined with apiKey to compute auth_hash.
+   * Not secret (no signing power on its own); included alongside apiKey so
+   * the credential pair can be reconstructed from the kit alone.
+   */
+  userKey?: string;
 }

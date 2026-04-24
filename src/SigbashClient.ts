@@ -1589,6 +1589,8 @@ export class SigbashClient {
       cekNonce: parsedEncKek2.nonce,
       network: response.network,
       createdAt: Math.floor(Date.now() / 1000),
+      apiKey: this._apiKey,
+      userKey: this._userKey,
     };
   }
 

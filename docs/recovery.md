@@ -52,9 +52,13 @@ The returned `SdkRecoveryKit` object looks like:
   "cekCiphertext": "4a7f3e...",
   "cekNonce": "1b2c8f...",
   "network": "mainnet",
-  "createdAt": 1745000000
+  "createdAt": 1745000000,
+  "apiKey": "aabbcc...",
+  "userKey": "ddeeff..."
 }
 ```
+
+`apiKey` and `userKey` are included so the kit is **fully self-contained**: recovering from it does not require a separately stored `.env` file. They are not secret on their own — signing power requires `recoveryKEK` — but they identify the org and user on the server, so store the kit as a single sensitive unit.
 
 ### Security warning
 
@@ -70,18 +74,18 @@ Recommended storage:
 
 ## Recovering From a Kit
 
-Create a `SigbashClient` with the **original `apiKey` and `userKey`** (admin still holds these). The `userSecretKey` value does not matter — it is not used during recovery.
+The `userSecretKey` value does not matter during recovery — it is not used. If the kit includes `apiKey` and `userKey` (all kits exported by this SDK version do), you can reconstruct the client entirely from the kit:
 
 ```typescript
-// userSecretKey can be any non-empty string — it is NOT used for recovery.
+const savedKit = JSON.parse(await mySecureStore.load('recovery-kit'));
+
+// apiKey and userKey come from the kit itself — no separate .env needed.
 const client = new SigbashClient({
-  apiKey,          // original org key
-  userKey,         // original user key
+  apiKey:        savedKit.apiKey,
+  userKey:       savedKit.userKey,
   userSecretKey: 'placeholder',   // ignored during recoverFromKit()
   serverUrl,
 });
-
-const savedKit = JSON.parse(await mySecureStore.load('recovery-kit'));
 
 const result = await client.recoverFromKit(savedKit);
 // result is a GetKeyResult — same shape as getKey()
