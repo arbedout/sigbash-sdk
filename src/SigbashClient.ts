@@ -78,6 +78,7 @@ interface GetKMCResponse {
   network: string;
   require_2fa: boolean;
   key_index?: number;
+  updateable?: boolean;
 }
 
 // WasmSignResult is the JS object shape returned by SigbashWASM_SignPSBTBlind.
@@ -836,6 +837,7 @@ export class SigbashClient {
         policyRoot,
         bip328Xpub,
         poetJSON: _extractPoetJSON(kmc),
+        updateable: options.updateable === true,
       };
     }
 
@@ -939,6 +941,7 @@ export class SigbashClient {
         policyRoot: response.policy_root,
         bip328Xpub: (kmcObj.bip328_xpub as string) ?? '',
         poetJSON: _extractPoetJSON(kmc),
+        updateable: response.updateable ?? false,
       };
     }
 

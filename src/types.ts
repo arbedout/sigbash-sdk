@@ -233,6 +233,8 @@ export interface KeySummary {
   bip328Xpub: string;
   /** Compiled POET policy as a parsed JSON object. */
   poetJSON: object;
+  /** Whether the admin can replace this key's policy via adminUpdatePolicy(). */
+  updateable: boolean;
 }
 
 /**

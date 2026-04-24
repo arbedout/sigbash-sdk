@@ -326,3 +326,74 @@ environment). Returns a `GetKeyResult` with the recovered `kmcJSON`.
 > **Note:** Without a previously exported recovery kit, admin-initiated recovery
 > is not possible. The `recoveryKEK` is derived from the user's `userSecretKey`,
 > which Sigbash never receives.
+
+---
+
+## Admin Operations
+
+The first user to call `POST /keys` within a new org (new `apiKey`) is
+automatically promoted to **admin**. Admins have access to three additional
+endpoints. All three require admin credentials to be in scope (`.env`,
+environment variables, or `X-Sigbash-*` headers).
+
+### Register a User
+
+Pre-authorise a new user to create keys within this org:
+
+```bash
+curl -s -X POST http://localhost:3000/admin/users \
+  -H 'Content-Type: application/json' \
+  -d '{"userKey": "<new-user-key>"}' | python3 -m json.tool
+```
+
+```json
+{ "ok": true }
+```
+
+### Revoke a User
+
+Remove a user's authorisation. Cannot revoke your own account:
+
+```bash
+curl -s -X DELETE http://localhost:3000/admin/users/<userKey> | python3 -m json.tool
+```
+
+```json
+{ "ok": true }
+```
+
+### Update a Key's Policy
+
+Replace the POET policy on a key that was created with `"updateable": true`.
+Only the org admin can call this endpoint:
+
+```bash
+curl -s -X POST http://localhost:3000/keys/key-abc123/update-policy \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "newPolicyJson": "{\"version\":\"1.1\",\"policy\":{\"type\":\"operator\",\"operator\":\"AND\",\"children\":[{\"type\":\"condition\",\"conditionType\":\"OUTPUT_VALUE\",\"conditionParams\":{\"selector\":\"ALL\",\"operator\":\"LTE\",\"value\":50000}}]}}"
+  }' | python3 -m json.tool
+```
+
+Returns `{ "ok": true }` on success. Returns HTTP 403 if the key is not
+marked `updateable` or the caller is not the admin.
+
+To create an updateable key, include `"updateable": true` in the
+`POST /keys` body:
+
+```bash
+curl -s -X POST http://localhost:3000/keys \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "policy": { ... },
+    "network": "signet",
+    "require2FA": false,
+    "updateable": true
+  }' | python3 -m json.tool
+```
+
+The `updateable` flag is write-once — it cannot be set or cleared after
+key creation. The slim summary returned by `GET /keys/:keyId` includes
+`"updateable"` so callers can check without fetching the full KMC.
+
+See [docs/admin.md](admin.md) for a full description of the admin model.
