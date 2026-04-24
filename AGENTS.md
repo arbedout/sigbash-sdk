@@ -350,3 +350,4 @@ Consult these docs when you need more detail — do not guess at parameter schem
 | Recovery kit export and import | [docs/recovery.md](docs/recovery.md) |
 | Nullifier counters and rate-limit semantics | [docs/nullifiers.md](docs/nullifiers.md) |
 | Verifying proof bundles | [docs/verifying.md](docs/verifying.md) |
+| Admin operations (user mgmt, 2FA, updateable policies, recovery) | [docs/admin.md](docs/admin.md) |
