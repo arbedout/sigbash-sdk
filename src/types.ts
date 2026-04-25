@@ -235,6 +235,16 @@ export interface KeySummary {
   poetJSON: object;
   /** Whether the admin can replace this key's policy via adminUpdatePolicy(). */
   updateable: boolean;
+  /**
+   * Number of times this key's policy has been replaced via adminUpdatePolicy().
+   * Only present when updateable=true and the policy has been updated at least once.
+   */
+  policyUpdateCount?: number;
+  /**
+   * ISO-8601 timestamp of the most recent policy replacement (server-authoritative).
+   * Only present when updateable=true and policyUpdateCount > 0.
+   */
+  policyLastUpdated?: string;
 }
 
 /**

@@ -79,6 +79,8 @@ interface GetKMCResponse {
   require_2fa: boolean;
   key_index?: number;
   updateable?: boolean;
+  policy_update_count?: number;
+  policy_last_updated?: string;
 }
 
 // WasmSignResult is the JS object shape returned by SigbashWASM_SignPSBTBlind.
@@ -935,7 +937,7 @@ export class SigbashClient {
     const kmcObj = kmc as Record<string, unknown>;
 
     if (!opts?.verbose) {
-      return {
+      const summary: KeySummary = {
         keyId,
         keyIndex,
         policyRoot: response.policy_root,
@@ -943,6 +945,13 @@ export class SigbashClient {
         poetJSON: _extractPoetJSON(kmc),
         updateable: response.updateable ?? false,
       };
+      if (response.policy_update_count !== undefined && response.policy_update_count > 0) {
+        summary.policyUpdateCount = response.policy_update_count;
+        if (response.policy_last_updated) {
+          summary.policyLastUpdated = response.policy_last_updated;
+        }
+      }
+      return summary;
     }
 
     return {
