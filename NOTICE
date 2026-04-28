@@ -1,13 +1,14 @@
 Sigbash SDK
-Copyright 2026 Sigbash, Inc.
+Copyright 2026 Oblivia Incorporated
 
-This product includes software developed by Sigbash, Inc.
+This product is developed and operated by Oblivia Incorporated.
+"Sigbash" is the name of the service; sigbash.com is its domain.
 
 The Sigbash SDK source code in this repository is licensed under the
-Apache License, Version 2.0.
+Apache License, Version 2.0. See LICENSE for the full license text.
 
-This SDK may fetch or connect to software, binaries, or services hosted by
-Sigbash or third parties at runtime. Those hosted components are not
-distributed as part of this repository or package unless explicitly stated
-otherwise, and may be governed by separate terms, conditions, or technical
-controls.
+This SDK is a client for the hosted Sigbash service operated by Oblivia
+Incorporated. Use of that hosted service is governed by the Sigbash Terms
+of Service, which are separate from this SDK's source code license. See
+SERVICE-TERMS.md in this repository, or the canonical version at
+https://www.sigbash.com/#terms.
