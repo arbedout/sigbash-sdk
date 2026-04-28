@@ -32,6 +32,7 @@ import type {
 
 import {
   AdminError,
+  ClientDisposedError,
   KeyIndexExistsError,
   PolicyCompileError,
   MissingOptionError,
@@ -475,7 +476,7 @@ export class SigbashClient {
    */
   async listKeys(): Promise<KeyListItem[]> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     const authHash = await this._authHash;
@@ -518,7 +519,7 @@ export class SigbashClient {
   async createKey(options: CreateKeyOptions & { verbose?: false }): Promise<KeySummary>;
   async createKey(options: CreateKeyOptions): Promise<CreateKeyResult | KeySummary> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     // Mandatory field validation — must throw before any network call
@@ -868,7 +869,7 @@ export class SigbashClient {
     opts?: { verbose?: boolean; keyIndex?: number }
   ): Promise<GetKeyResult | KeySummary> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     const authHash = await this._authHash;
@@ -985,7 +986,7 @@ export class SigbashClient {
    */
   async signPSBT(options: SignPSBTOptions): Promise<SignPSBTResult> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     if ((options as SignPSBTOptions & { require2FA?: boolean }).require2FA === true && options.totpCode === undefined) {
@@ -998,7 +999,7 @@ export class SigbashClient {
     ] as ((
       psbtBase64: string,
       kmcJSON: string,
-      inputIndex: number,
+      _inputIndex: number,
       network: string,
       progressCallback: ((step: string, message: string) => void) | null,
       seedHex: string
@@ -1031,7 +1032,6 @@ export class SigbashClient {
     }
 
     const psbtBase64 = options.psbtBase64 ?? options.psbtHex ?? '';
-    const inputIndex = options.inputIndex ?? 0;
     const network = options.network ?? 'signet';
     const progressCallback = options.progressCallback ?? null;
 
@@ -1149,7 +1149,8 @@ export class SigbashClient {
 
     let result: WasmSignResult;
     try {
-      result = await wasmFn(psbtBase64, options.kmcJSON, inputIndex, network, progressCallback, seedHex);
+      // arg[2] is read but ignored by SignPSBTBlind_WASM (signs all inputs); placeholder for the WASM ABI
+      result = await wasmFn(psbtBase64, options.kmcJSON, 0, network, progressCallback, seedHex);
     } catch (err) {
       // wasmErrorResult() returns a Go map {error: "msg"} which becomes a JS object.
       // String(obj) gives "[object Object]", so extract the .error property directly.
@@ -1354,7 +1355,7 @@ export class SigbashClient {
 
     return {
       passed,
-      pathID: result.pathID ?? '',
+      pathId: result.pathID ?? '',
       satisfiedClause: result.satisfiedClause ?? '',
       nullifierStatus: (result.nullifierStatus ?? []).map(ns => ({
         inputIndex: ns.inputIndex,
@@ -1557,7 +1558,7 @@ export class SigbashClient {
     opts?: { keyIndex?: number }
   ): Promise<SdkRecoveryKit> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     const authHash = await this._authHash;
@@ -1629,7 +1630,7 @@ export class SigbashClient {
    */
   async recoverFromKit(recoveryKit: SdkRecoveryKit): Promise<GetKeyResult> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     // Validate kit shape.
@@ -1724,7 +1725,7 @@ export class SigbashClient {
     recoveryKit: SdkRecoveryKit,
   ): Promise<GetKeyResult> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     if (recoveryKit?.version !== 'sdk-recovery-v1') {
@@ -1830,7 +1831,7 @@ export class SigbashClient {
    * @param keyId        - The key identifier returned by createKey()
    * @param newPolicyJson - The new POET v1.1 policy serialised as a JSON string
    *
-   * @throws SigbashSDKError  with code CLIENT_DISPOSED if the client has been disposed
+   * @throws ClientDisposedError if the client has been disposed
    * @throws SigbashSDKError  with code WASM_ERROR if the WASM updatePolicy call fails
    * @throws AdminError       if the server rejects the request (403)
    */
@@ -1841,7 +1842,7 @@ export class SigbashClient {
     newPolicyJson?: string,
   ): Promise<void> {
     if (this.#disposed) {
-      throw new SigbashSDKError('SigbashClient has been disposed', 'CLIENT_DISPOSED');
+      throw new ClientDisposedError();
     }
 
     const keyId = typeof keyIdOrOpts === 'string' ? keyIdOrOpts : keyIdOrOpts.keyId;

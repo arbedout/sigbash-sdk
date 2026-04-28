@@ -449,14 +449,21 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
     params: {
       max_uses: {
         type: 'number',
-        description: 'Maximum number of signing sessions allowed per interval.',
+        description: 'Maximum number of signing sessions allowed per interval. Range: 1–100,000 (engine cap).',
         required: true,
       },
       reset_interval: {
         type: 'string',
-        description: 'How often the counter resets.',
+        description:
+          "How often the counter resets. When set to 'custom', reset_interval_seconds is required.",
         required: true,
-        enum: ['never', 'daily', 'weekly', 'monthly'],
+        enum: ['never', 'hourly', 'daily', 'weekly', 'monthly', 'custom'],
+      },
+      reset_interval_seconds: {
+        type: 'number',
+        description:
+          'Custom interval length in seconds. Required when reset_interval is "custom". Range: 3600 (1 hour) to 31_536_000 (1 year).',
+        required: false,
       },
       reset_type: {
         type: 'string',

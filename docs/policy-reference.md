@@ -7,6 +7,33 @@ combine children with boolean logic (AND, OR, NOT, etc.). Condition leaves check
 one property of the transaction being signed. The policy evaluates to `true` when
 the root node is satisfied.
 
+> **New here?** Start with [Getting Started](./getting-started.md) for an end-to-end
+> walkthrough. For a one-page summary of operators and condition types, see
+> [Policy Overview](./policy-overview.md). This page is the full parameter reference.
+
+## Contents
+
+- [Policy JSON format](#policy-json-format)
+- [TypeScript shorthand](#typescript-shorthand)
+- [Operators](#operators)
+- [Selectors](#selectors)
+- [Comparison operators](#comparison-operators)
+- [Runtime-resolved placeholders](#runtime-resolved-placeholders)
+- [Anatomy of a condition](#anatomy-of-a-condition)
+- Condition types
+  - [Value & fee conditions](#value--fee-conditions)
+  - [Transaction structure conditions](#transaction-structure-conditions)
+  - [Sighash conditions](#sighash-conditions)
+  - [Address set conditions](#address-set-conditions)
+  - [Key requirement (`REQKEY`)](#key-requirement)
+  - [Usage limit conditions](#usage-limit-conditions)
+  - [Output checks](#output-checks)
+  - [Derived (boolean) conditions](#derived-boolean-conditions)
+  - [Template hash](#template-hash)
+  - [BIP-443 covenant conditions](#bip-443-covenant-conditions)
+- [Enums reference](#enums-reference)
+- [Complete examples](#complete-examples)
+
 ---
 
 ## Policy JSON format
@@ -85,7 +112,7 @@ Use these as the `operator` field on operator nodes (or the `logic` shorthand in
 | `AT_MOST` | `ATMOST` | At most *k* children satisfied (`operatorParams: { k }`) |
 | `IMPLIES` | — | If first child satisfied, second child must also be satisfied |
 | `IFF` | — | First child satisfied if and only if second child satisfied |
-| `VETO` | — | First child is the *trigger*; if trigger is satisfied, the remaining children are **blocked**. Semantics: `NOT(trigger) AND body` |
+| `VETO` | — | First child is the *trigger*; if trigger is satisfied, the remaining children are **blocked**. Satisfied iff `trigger` is NOT satisfied AND every remaining child IS satisfied. |
 | `NOR` | — | None of the children may be satisfied |
 | `NAND` | — | Not all children may be satisfied simultaneously |
 | `XOR` | — | Exactly one child satisfied |
@@ -98,11 +125,22 @@ const policy = conditionConfigToPoetPolicy({
   threshold: 2,    // k = 2 of 3
   conditions: [
     { type: 'TX_VERSION', operator: 'EQ', value: 2 },
-    { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
-    { type: 'COUNT_BASED_CONSTRAINT', max_uses: 1, reset_interval: 'daily' },
+    { type: 'TX_INPUT_COUNT', operator: 'EQ', value: 1 },
+    {
+      logic: 'AND',
+      conditions: [
+        { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
+        { type: 'COUNT_BASED_CONSTRAINT', max_uses: 1, reset_interval: 'daily' },
+      ],
+    },
   ],
 });
 ```
+
+> **Why is the stateful constraint wrapped in `AND`?** The nullifier counter is
+> only consumed when its enclosing branch is the satisfying one — wrapping
+> `COUNT_BASED_CONSTRAINT` inside an `AND` keeps the rate-limit semantics tied to
+> a specific branch rather than firing whenever the threshold happens to count it.
 
 ---
 
@@ -164,14 +202,21 @@ Common descriptor templates:
 | `wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)` | Single-sig P2WPKH (BIP-84) |
 | `wsh(multi(2,SIGBASH_XPUB/0/*,COSIGNER_XPUB/0/*))` | 2-of-2 multisig P2WSH |
 
-The optional `derivation_range` parameter (default 1000, range 20–10000)
-controls how many addresses are pre-derived for ZK set-membership proofs.
+The optional `derivation_range` parameter (default 1000, range 20–10000) is the
+**address gap limit** — the number of consecutive child addresses derived from
+the descriptor and treated as part of the wallet. The same set is also what gets
+proved against in the ZK set-membership circuit, so larger ranges mean larger
+proofs.
 
 ### Resolved at signing time — BIP-443 data placeholders
 
-The `committed_data_hex` field of `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT` and
-the `witness_data_hex` field of `INPUT_COMMITTED_DATA_VERIFY` support special
-tokens that are substituted from the PSBT at signing time:
+Two condition fields support runtime placeholders that are substituted from the
+PSBT at signing time:
+
+- `committed_data_hex` — on `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT`
+- `witness_data_hex` — on `INPUT_COMMITTED_DATA_VERIFY`
+
+The supported tokens are:
 
 | Token | Resolved to |
 |---|---|
@@ -191,9 +236,35 @@ where the spending script must propagate itself to the output.
 
 ---
 
+## Anatomy of a condition
+
+A condition leaf is always a `{ type, ...params }` object. The four shapes you'll
+see across this reference are:
+
+```typescript
+// 1. type + selector + operator + value  (most numeric conditions)
+{ type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 100_000 }
+
+// 2. type + selector + named params  (set/enum conditions)
+{ type: 'INPUT_SIGHASH_TYPE', selector: 'ALL', sighash_type: 'SIGHASH_ALL' }
+
+// 3. type + boolean expected_value  (derived properties)
+{ type: 'DERIVED_IS_CONSOLIDATION', expected_value: true }
+
+// 4. type + structured params  (constraints, covenants)
+{ type: 'COUNT_BASED_CONSTRAINT', max_uses: 5, reset_interval: 'daily' }
+```
+
+`selector` is only present on conditions that operate per-input or per-output
+(see [Selectors](#selectors)). `operator` and `value` together form a comparison
+(see [Comparison operators](#comparison-operators)). Everything else is a
+condition-specific named parameter — see the table for each condition below.
+
+---
+
 ## Condition types
 
-All 27 condition types are available in the exported `CONDITION_TYPES` constant:
+The condition types are available in the exported `CONDITION_TYPES` constant:
 
 ```typescript
 import { CONDITION_TYPES } from '@sigbash/sdk';
@@ -320,33 +391,7 @@ Checks the `nSequence` field of one or more inputs. Useful for RBF signalling (`
 
 ---
 
-### Script & sighash conditions
-
-#### `INPUT_SCRIPT_TYPE`
-
-Requires the spending script type of one or more inputs to match a specific type.
-
-| Param | Type | Required | Valid values |
-|---|---|---|---|
-| `script_type` | `string` | yes | `'P2PKH'`, `'P2SH'`, `'P2WPKH'`, `'P2WSH'`, `'P2TR'`, `'OP_RETURN'`, `'UNKNOWN'` |
-| `selector` | `Selector` | no (default `'ANY'`) | Which inputs to check |
-
-```typescript
-{ type: 'INPUT_SCRIPT_TYPE', selector: 'ALL', script_type: 'P2TR' }
-```
-
-#### `OUTPUT_SCRIPT_TYPE`
-
-Requires the `scriptPubKey` type of one or more outputs to match a specific type.
-
-| Param | Type | Required | Valid values |
-|---|---|---|---|
-| `script_type` | `string` | yes | `'P2PKH'`, `'P2SH'`, `'P2WPKH'`, `'P2WSH'`, `'P2TR'`, `'OP_RETURN'`, `'UNKNOWN'` |
-| `selector` | `Selector` | no (default `'ANY'`) | Which outputs to check |
-
-```typescript
-{ type: 'OUTPUT_SCRIPT_TYPE', selector: 'ALL', script_type: 'P2TR' }
-```
+### Sighash conditions
 
 #### `INPUT_SIGHASH_TYPE`
 
@@ -371,14 +416,22 @@ Checks that the destination address(es) of one or more outputs are in an approve
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `addresses` | `string[]` | yes | Array of permitted Bitcoin addresses |
+| `addresses` | `string[]` | conditional | Array of permitted Bitcoin addresses. Required unless `use_descriptor` is `true` |
 | `network` | `string` | yes | `'mainnet'`, `'testnet'`, or `'signet'` |
 | `selector` | `Selector` | no (default `'ANY'`) | Which outputs to check |
 | `require_change_to_input_addresses` | `boolean` | no (default `false`) | When `true`, change outputs must send back to an input address |
+| `descriptor_template` | `string` | no | BIP-328 descriptor template with `SIGBASH_XPUB` placeholder |
+| `use_descriptor` | `boolean` | no | When `true`, derive permitted output addresses from `descriptor_template` at key-request time |
 
 ```typescript
+// Explicit address list
 { type: 'OUTPUT_DEST_IS_IN_SETS', selector: 'ALL',
   addresses: ['tb1qexample1...', 'tb1qexample2...'], network: 'signet' }
+
+// Descriptor-based (addresses derived automatically from the wallet xpub)
+{ type: 'OUTPUT_DEST_IS_IN_SETS', selector: 'ALL',
+  descriptor_template: 'tr(SIGBASH_XPUB/0/*)',
+  use_descriptor: true, network: 'signet' }
 ```
 
 #### `INPUT_SOURCE_IS_IN_SETS`
@@ -416,19 +469,31 @@ Proves that a specific key is present in the tapscript spending path, using a ze
 |---|---|---|---|
 | `key_identifier` | `string` | conditional | 64-char hex x-only public key (32 bytes). Required when `use_descriptor` is `false` |
 | `key_type` | `string` | yes | `'TAP_LEAF_XONLY_PUBKEY'` or `'TAP_KEYPATH_OUTPUTKEY'` |
+| `selector` | `{ type: 'ALL' \| 'ANY' \| 'INDEX', index?: number }` | yes | How the key requirement is matched across the spending paths. `{ type: 'ALL' }` is the canonical default — see note below |
 | `use_descriptor` | `boolean` | no (default `false`) | When `true`, derive the key from `descriptor_template` instead of using a fixed `key_identifier` |
 | `descriptor_template` | `string` | conditional | BIP-328 descriptor with `SIGBASH_XPUB` placeholder. Required when `use_descriptor` is `true`. Resolved at key-registration time |
+
+**`key_type` plain-english:** `'TAP_LEAF_XONLY_PUBKEY'` is the **script-path** flavour
+— it proves the given key appears as an x-only pubkey inside a tapscript leaf
+(typical for multi-key vaults, recovery keys, or any key that participates in a
+script path). `'TAP_KEYPATH_OUTPUTKEY'` is the **key-path** flavour — it proves the
+given key is the taproot *output* key itself (the aggregate key that's tweaked
+into the on-chain address). Use the leaf form for "this key must appear in the
+taptree somewhere"; use the keypath form for "this is the actual top-level
+spending key".
 
 ```typescript
 // Fixed key (most common)
 { type: 'REQKEY',
   key_identifier: 'aabbccdd...64hexchars',
-  key_type: 'TAP_LEAF_XONLY_PUBKEY' }
+  key_type: 'TAP_LEAF_XONLY_PUBKEY',
+  selector: { type: 'ALL' } }
 
 // Descriptor-derived key
 { type: 'REQKEY',
   key_type: 'TAP_LEAF_XONLY_PUBKEY',
-  use_descriptor: true, descriptor_template: 'tr(SIGBASH_XPUB/0/*)' }
+  use_descriptor: true, descriptor_template: 'tr(SIGBASH_XPUB/0/*)',
+  selector: { type: 'ALL' } }
 ```
 
 ---
@@ -503,33 +568,10 @@ any other recurring schedule.
   start_date_within: '2025-04-20',
   end_date_within: '2225-04-20',
 }
-
-// Fridays only, any hour
-{
-  type: 'TIME_BASED_CONSTRAINT',
-  constraint_type: 'within',
-  active_days: [5],                // Friday only
-  start_hour: '00:00',
-  end_hour: '23:59',
-  start_time: 1713571200,
-  end_time: 7022323200,
-  start_date_within: '2025-04-20',
-  end_date_within: '2225-04-20',
-}
-
-// Weekends only
-{
-  type: 'TIME_BASED_CONSTRAINT',
-  constraint_type: 'within',
-  active_days: [6, 7],             // Sat + Sun
-  start_hour: '00:00',
-  end_hour: '23:59',
-  start_time: 1713571200,
-  end_time: 7022323200,
-  start_date_within: '2025-04-20',
-  end_date_within: '2225-04-20',
-}
 ```
+
+To swap the schedule, change `active_days` only: Friday only `[5]`,
+weekends `[6, 7]`, all days `[1, 2, 3, 4, 5, 6, 7]`.
 
 > **Tip:** The `business-hours-only` template generates `within` boilerplate for
 > weekday business hours — see [Creating Keys](./creating-keys.md).
@@ -562,14 +604,6 @@ True when the transaction has more inputs than outputs (UTXO consolidation patte
 
 ```typescript
 { type: 'DERIVED_IS_CONSOLIDATION', expected_value: true }
-```
-
-#### `DERIVED_IS_COINJOIN_LIKE`
-
-True when the transaction resembles a CoinJoin: multiple inputs from different addresses and multiple equal-value outputs.
-
-```typescript
-{ type: 'DERIVED_IS_COINJOIN_LIKE', expected_value: false }
 ```
 
 #### `DERIVED_IS_PAYJOIN_LIKE`
@@ -648,6 +682,23 @@ consensus. They are checked against the PSBT at signing time. For the full set o
 runtime-substituted placeholders available in data fields, see [Runtime-resolved
 placeholders](#runtime-resolved-placeholders).
 
+**Glossary** (one line each):
+
+- **BIP-443** — proposed Bitcoin opcode `OP_CHECKCONTRACTVERIFY` (CCV) plus the
+  taptree-and-data commitment scheme it relies on. Spec:
+  [bips.dev/443](https://bips.dev/443/).
+- **CCV** — `OP_CHECKCONTRACTVERIFY`, the BIP-443 opcode that validates a
+  taproot output against a `(internal_key, script_tree_root, data)` commitment.
+- **Covenant** — a UTXO whose spending conditions restrict where its value can
+  go next (e.g. "must move to a UTXO carrying state `d1`").
+- **Taptree self-reference** — using the literal `'SELF'` (or BIP-443
+  `taptree = -1`) to mean "the same script tree as the policy currently being
+  evaluated", enabling self-replicating UTXOs.
+- **Oblivious signer** — the Sigbash co-signer, which never sees the
+  transaction, the other co-signers, or which policy path was taken; covenant
+  enforcement happens inside the ZK proof, not in Bitcoin script. See
+  [Getting Started](./getting-started.md) for the full obliviousness model.
+
 #### `OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT`
 
 Validates that an output's `scriptPubKey` matches a BIP-443 covenant commitment.
@@ -659,7 +710,7 @@ Use this to enforce state-carrying UTXOs (vaults, counters, state machines).
 | `committed_data_hex` | `string` | yes | Hex data to commit (max 1 KB). Accepts placeholders: `SIGBASH_INTERNAL_KEY`, `SIGBASH_OUTPUT_KEY`, `SIGBASH_NUMS_KEY`, `SIGBASH_COVENANT_STATE` |
 | `script_tree_root` | `string` | yes | 32-byte hex taptree root. Use `'SELF'` for taptree self-reference (same script tree as current policy) |
 | `validation_mode` | `string` | yes | `'bip443_covenant'` (full), `'simple_data_tweak'` (taptweak + data), `'taptweak_only'` (basic taproot tweak) |
-| `amount_mode` | `string` | no (default `'ignore'`) | CCV amount semantics: `'ignore'` (CCV mode 1, default), `'preserve'` (CCV mode 0, accumulate input to output minimum), `'deduct'` (CCV mode 2, subtract output from input residual) |
+| `amount_mode` | `string` | no (default `'ignore'`) | Amount semantics: `'ignore'` (default — output amount unconstrained), `'preserve'` (input amount must accumulate into the output's minimum), `'deduct'` (output amount is subtracted from the input residual) |
 
 ```typescript
 // Enforce a self-replicating vault output (same taptree, same key, state carried forward)
@@ -758,7 +809,8 @@ const policy = conditionConfigToPoetPolicy({
   conditions: [
     // If admin key is NOT present...
     { logic: 'NOT', child: { type: 'REQKEY',
-        key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' } },
+        key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY',
+        selector: { type: 'ALL' } } },
     // ...then enforce spending cap
     { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 10_000 },
   ],
@@ -802,7 +854,8 @@ const policy = conditionConfigToPoetPolicy({
   logic: 'OR',
   conditions: [
     // Admin can always sign
-    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY',
+      selector: { type: 'ALL' } },
     // Anyone can sign after 2030-01-01 (Unix: 1893456000)
     { type: 'TIME_BASED_CONSTRAINT', constraint_type: 'after', start_time: 1893456000 },
   ],
@@ -844,7 +897,8 @@ const policy = conditionConfigToPoetPolicy({
       ],
     },
     // Tier 2: admin key overrides all limits
-    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+    { type: 'REQKEY', key_identifier: 'aabb...64hex', key_type: 'TAP_LEAF_XONLY_PUBKEY',
+      selector: { type: 'ALL' } },
   ],
 });
 ```
@@ -882,9 +936,8 @@ const policy = conditionConfigToPoetPolicy({
 });
 ```
 
-Use `reset_type: 'rolling'` instead to count 7 days from the first use rather than resetting on a fixed calendar day.
-
----
+> Use `reset_type: 'rolling'` instead of `'calendar'` to count 7 days from the
+> first use rather than resetting on a fixed calendar day.
 
 ### Blacklist: block known-bad output addresses
 
@@ -942,13 +995,15 @@ const policy = conditionConfigToPoetPolicy({
   logic: 'OR',
   conditions: [
     // Owner — unrestricted, always valid
-    { type: 'REQKEY', key_identifier: OWNER_KEY, key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+    { type: 'REQKEY', key_identifier: OWNER_KEY, key_type: 'TAP_LEAF_XONLY_PUBKEY',
+      selector: { type: 'ALL' } },
 
     // Heir — only after unlock date, rate-limited, capped per transaction
     {
       logic: 'AND',
       conditions: [
-        { type: 'REQKEY', key_identifier: HEIR_KEY, key_type: 'TAP_LEAF_XONLY_PUBKEY' },
+        { type: 'REQKEY', key_identifier: HEIR_KEY, key_type: 'TAP_LEAF_XONLY_PUBKEY',
+          selector: { type: 'ALL' } },
         { type: 'TIME_BASED_CONSTRAINT', constraint_type: 'after', start_time: UNLOCK_AT },
         { type: 'COUNT_BASED_CONSTRAINT', max_uses: 4, reset_interval: 'monthly', reset_type: 'calendar' },
         { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 10_000_000 },

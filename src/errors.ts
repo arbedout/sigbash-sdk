@@ -27,17 +27,36 @@ export class SigbashError extends Error {
 }
 
 /**
+ * Base error class for SDK-specific errors that use string codes.
+ * New error classes (KeyIndexExistsError, MissingOptionError, etc.) extend this.
+ */
+export class SigbashSDKError extends Error {
+  public readonly code: string;
+
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'SigbashSDKError';
+    this.code = code;
+    Object.setPrototypeOf(this, SigbashSDKError.prototype);
+  }
+}
+
+/**
  * Policy validation error with structured issues.
  *
- * @deprecated Use {@link PolicyCompileError} instead.
+ * Returned by `parseServerError` when the server rejects a policy with
+ * structured issues. First-class member of the modern `SigbashSDKError`
+ * hierarchy — catch via `instanceof SigbashSDKError` or `PolicyValidationError`.
  */
-export class PolicyValidationError extends SigbashError {
+export class PolicyValidationError extends SigbashSDKError {
   public readonly issues: PolicyIssue[];
+  public readonly details?: any;
 
   constructor(message: string, issues: PolicyIssue[]) {
-    super(message, ErrorCode.INVALID_POLICY, { issues });
+    super(message, 'POLICY_INVALID');
     this.name = 'PolicyValidationError';
     this.issues = issues;
+    this.details = { issues };
 
     Object.setPrototypeOf(this, PolicyValidationError.prototype);
   }
@@ -46,12 +65,16 @@ export class PolicyValidationError extends SigbashError {
 /**
  * Authentication error.
  *
- * @deprecated Use {@link SigbashSDKError} with code `'AUTH_FAILED'` instead.
+ * Returned by `parseServerError` when the server rejects credentials.
+ * First-class member of the modern `SigbashSDKError` hierarchy.
  */
-export class AuthenticationError extends SigbashError {
+export class AuthenticationError extends SigbashSDKError {
+  public readonly details?: any;
+
   constructor(message: string, details?: any) {
-    super(message, ErrorCode.AUTH_FAILED, details);
+    super(message, 'AUTH_FAILED');
     this.name = 'AuthenticationError';
+    this.details = details;
 
     Object.setPrototypeOf(this, AuthenticationError.prototype);
   }
@@ -74,16 +97,24 @@ export class WasmError extends SigbashError {
 /**
  * Network mismatch error.
  *
- * @deprecated Use {@link NetworkError} instead.
+ * Returned by `parseServerError` when the server's expected network does not
+ * match the network supplied in the request. First-class member of the modern
+ * `SigbashSDKError` hierarchy.
  */
-export class NetworkMismatchError extends SigbashError {
+export class NetworkMismatchError extends SigbashSDKError {
+  public readonly expected: string;
+  public readonly actual: string;
+  public readonly details?: any;
+
   constructor(expected: string, actual: string) {
     super(
       `Network mismatch: expected ${expected}, got ${actual}`,
-      ErrorCode.NETWORK_MISMATCH,
-      { expected, actual }
+      'NETWORK_MISMATCH'
     );
     this.name = 'NetworkMismatchError';
+    this.expected = expected;
+    this.actual = actual;
+    this.details = { expected, actual };
 
     Object.setPrototypeOf(this, NetworkMismatchError.prototype);
   }
@@ -109,15 +140,20 @@ export class CryptoError extends SigbashError {
 /**
  * Server communication error.
  *
- * @deprecated Use {@link SigbashSDKError} with code `'SERVER_ERROR'` instead.
+ * Returned by `parseServerError` for generic server failures that do not match
+ * a more specific class. First-class member of the modern `SigbashSDKError`
+ * hierarchy. The `statusCode` (when present) reflects the HTTP status; the raw
+ * server response is preserved in `details`.
  */
-export class ServerError extends SigbashError {
+export class ServerError extends SigbashSDKError {
   public readonly statusCode?: number;
+  public readonly details?: any;
 
   constructor(message: string, statusCode?: number, details?: any) {
-    super(message, ErrorCode.SERVER_ERROR, details);
+    super(message, 'SERVER_ERROR');
     this.name = 'ServerError';
     this.statusCode = statusCode;
+    this.details = details;
 
     Object.setPrototypeOf(this, ServerError.prototype);
   }
@@ -146,17 +182,15 @@ export class TimeoutError extends SigbashError {
 // ---------------------------------------------------------------------------
 
 /**
- * Base error class for SDK-specific errors that use string codes.
- * New error classes (KeyIndexExistsError, MissingOptionError, etc.) extend this.
+ * Thrown when an operation is attempted on a `SigbashClient` instance that has
+ * already been disposed via `dispose()`. Once disposed, the client cannot be
+ * reused — create a new instance instead.
  */
-export class SigbashSDKError extends Error {
-  public readonly code: string;
-
-  constructor(message: string, code: string) {
-    super(message);
-    this.name = 'SigbashSDKError';
-    this.code = code;
-    Object.setPrototypeOf(this, SigbashSDKError.prototype);
+export class ClientDisposedError extends SigbashSDKError {
+  constructor(message: string = 'SigbashClient has been disposed') {
+    super(message, 'CLIENT_DISPOSED');
+    this.name = 'ClientDisposedError';
+    Object.setPrototypeOf(this, ClientDisposedError.prototype);
   }
 }
 
@@ -303,7 +337,7 @@ export class NetworkError extends SigbashSDKError {
 /**
  * Parse server error response into appropriate error class
  */
-export function parseServerError(response: any): SigbashError {
+export function parseServerError(response: any): SigbashSDKError {
   const code = response.code as ErrorCode || ErrorCode.UNKNOWN;
   const message = response.message || 'Unknown server error';
 

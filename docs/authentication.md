@@ -1,5 +1,9 @@
 # Authentication
 
+Sigbash has no signup flow or dashboard. Authentication is fully client-side:
+the SDK generates three random credentials locally and uses one-way hashes to
+identify your org and user to the server.
+
 `SigbashClient` requires a **three-credential triplet**:
 
 | Credential | Role | Sent to server? |
@@ -8,18 +12,23 @@
 | `userKey` | User identifier within your organisation | Yes |
 | `userSecretKey` | User-only secret for KEK derivation | **Never** |
 
-The SDK derives `authHash = DSHA256(apiKey ∥ userKey)` for server authentication
-and `KEK = HKDF(apiKey ∥ userKey ∥ userSecretKey)` for encrypting key material
-locally.  The `userSecretKey` never leaves the client.
+From these, the SDK derives two values: `authHash = DSHA256(apiKey ∥ userKey)`,
+sent with every request to identify the user; and
+`KEK = HKDF(apiKey ∥ userKey ∥ userSecretKey)`, used only on the client to
+encrypt key material. `userSecretKey` never leaves the client. Key material is
+encrypted with AES-256-GCM using the KEK before being stored server-side.
 
 ---
 
 ## Generating credentials
 
-All three credentials are random hex strings — no dashboard required. Generate
-them locally with `generateCredentials()`, which writes a `.env` file and
-returns the values. Calling it again on the same file returns the existing
-credentials unchanged.
+All three credentials are random 64-char hex strings, generated locally.
+Generate them with `generateCredentials()`, which writes a `.env` file and
+returns the values. Calling it again with the same `envPath` returns the
+existing credentials unchanged.
+
+> `generateCredentials()` is **Node.js only** — it writes to the filesystem.
+> In browser environments, supply credentials from your own secure storage.
 
 ```typescript
 import { generateCredentials } from '@sigbash/sdk';
@@ -54,16 +63,15 @@ await generateCredentials({ envPath: '/path/to/.env' });
 await generateCredentials({ force: true });
 ```
 
-> `generateCredentials()` is **Node.js only** — it writes to the filesystem.
-> In browser environments, supply credentials from your own secure storage.
-
 ---
 
 ## Finding your org identifier
 
-Sigbash identifies organisations by `apikeyHash = DSHA256(apiKey ∥ apiKey)`.
-Use `getAuthHash()` to compute it — you'll need it when contacting Sigbash to
-upgrade from signet to mainnet or make other org-level changes.
+An **org** (organisation) is the top-level Sigbash tenant — every credential
+triplet belongs to exactly one org, identified by `apiKey`. Sigbash identifies
+organisations by `apikeyHash = DSHA256(apiKey ∥ apiKey)`. Use `getAuthHash()`
+to compute it — you'll need it when contacting Sigbash to upgrade from signet
+to mainnet or make other org-level changes.
 
 ```typescript
 import { getAuthHash } from '@sigbash/sdk';
@@ -78,6 +86,13 @@ Neither hash exposes `userSecretKey` or any derived key material.
 
 ---
 
+## Multiple keys per user
+
+A single triplet can register multiple keys — see
+[creating-keys.md § Multiple keys per user](./creating-keys.md#multiple-keys-per-user).
+
+---
+
 ## Security properties
 
 | What admin holds | What admin cannot compute |
@@ -85,6 +100,4 @@ Neither hash exposes `userSecretKey` or any derived key material.
 | `apiKey`, `userKey` | `userSecretKey` |
 | `authHash`, `apikeyHash` | Any KEK or KMC decryption |
 
-The first user to call `createKey()` in a new org is automatically promoted to
-admin. Additional users are registered with `client.registerUser(userKey)` from
-an admin client.
+Org admin promotion and user management are covered in [admin.md](./admin.md).

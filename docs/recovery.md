@@ -1,6 +1,10 @@
 # Account Recovery
 
-The SDK supports **recovery kit export and import** so that a user who loses their `userSecretKey` can still access their key material container (KMC) and resume signing operations.
+The SDK supports **recovery kit export and import** so that a user who loses their `userSecretKey` can still access their key material container (KMC, the encrypted blob holding your signing keys) and resume signing operations.
+
+> **Lost your `userSecretKey`?** If you have a recovery kit, jump to [Recovering From a Kit](#recovering-from-a-kit). If you don't have a kit, the KMC cannot be recovered — see the [FAQ](#faq).
+
+> Admins can recover a departed user's kit — see [admin.md § Admin-initiated key recovery](admin.md#admin-initiated-key-recovery).
 
 ---
 
@@ -25,7 +29,7 @@ During `createKey()`, the KMC is encrypted under a fresh CEK, which is itself wr
 - **auth slot** → CEK wrapped under `credKEK` (normal access path)
 - **`enc_kek2`** → CEK wrapped under `recoveryKEK` (recovery path, stored server-side)
 
-If `userSecretKey` is lost, neither KEK can be re-derived, making both slots inaccessible. A recovery kit solves this by **pre-deriving and storing** the `recoveryKEK` before the secret is lost.
+If `userSecretKey` is lost, neither KEK can be re-derived — both the auth slot and the recovery slot become unreachable without the kit. A recovery kit solves this by **pre-deriving and storing** the `recoveryKEK` before the secret is lost.
 
 ---
 
@@ -36,11 +40,17 @@ Call `exportRecoveryKit()` while the credential triplet is still valid:
 ```typescript
 const client = new SigbashClient({ apiKey, userKey, userSecretKey, serverUrl });
 
+// Signature: exportRecoveryKit(keyId, opts?: { keyIndex?: number })
+// keyIndex defaults to 0 when omitted.
 const kit = await client.exportRecoveryKit(keyId);
 
 // Persist the kit securely — treat it like a private key.
 await mySecureStore.save('recovery-kit', JSON.stringify(kit));
 ```
+
+> **Export after every `createKey()`.** Each new key gets a new CEK and a new `enc_kek2`, so each key needs its own recovery kit. Make `exportRecoveryKit()` part of your key-creation workflow.
+
+> **Storage warning.** The kit bundles `apiKey`, `userKey`, and `recoveryKEK` — all three are sensitive when held together, since they are sufficient to authenticate to the server and unwrap the CEK for this `keyId`. Do not commit kits to source control. Treat the file the same as a private key backup.
 
 The returned `SdkRecoveryKit` object looks like:
 
@@ -58,7 +68,7 @@ The returned `SdkRecoveryKit` object looks like:
 }
 ```
 
-`apiKey` and `userKey` are included so the kit is **fully self-contained**: recovering from it does not require a separately stored `.env` file. They are not secret on their own — signing power requires `recoveryKEK` — but they identify the org and user on the server, so store the kit as a single sensitive unit.
+`apiKey` and `userKey` are always present in kits exported by this SDK version; the type marks them optional only for forward/backward compatibility with older kits. Treat them as required when parsing a kit produced here. Their inclusion makes the kit **fully self-contained**: recovering from it does not require a separately stored `.env` file.
 
 ### Security warning
 
@@ -83,14 +93,16 @@ const savedKit = JSON.parse(await mySecureStore.load('recovery-kit'));
 const client = new SigbashClient({
   apiKey:        savedKit.apiKey,
   userKey:       savedKit.userKey,
-  userSecretKey: 'placeholder',   // ignored during recoverFromKit()
+  userSecretKey: 'placeholder',   // any string; ignored, but the field is required by the constructor
   serverUrl,
 });
 
 const result = await client.recoverFromKit(savedKit);
 // result is a GetKeyResult — same shape as getKey()
 
-// Use the recovered KMC for signing:
+// Use the recovered KMC for signing.
+// Prerequisite: loadWasm() must have been called before any signPSBT() call —
+// the recovered kmcJSON cannot be used until WASM is loaded in the process.
 const signed = await client.signPSBT({
   keyId: result.keyId,
   psbtBase64: '...',
@@ -106,8 +118,6 @@ const signed = await client.signPSBT({
 4. `unwrapCEK(enc_kek2, recoveryKEKBytes)` → 32-byte CEK.
 5. The CEK decrypts the envelope's `ciphertext_package` → KMC.
 
-The `enc_kek2` snapshot embedded in the kit is used as a fallback only if the server returns none; the server copy is always preferred.
-
 ---
 
 ## Error Codes
@@ -119,6 +129,8 @@ The `enc_kek2` snapshot embedded in the kit is used as a fallback only if the se
 | `RECOVERY_KIT_VERSION_MISMATCH` | Kit `version` field is not `'sdk-recovery-v1'` |
 | `RECOVERY_KIT_INVALID` | Kit is missing required fields (`keyId`, `recoveryKEK`, `cekCiphertext`, `cekNonce`) or `recoveryKEK` is not valid hex |
 | `CryptoError` | `recoveryKEK` is wrong (the CEK unwrap failed); the kit may be for a different key |
+
+If your key was registered via WebAuthn instead of the SDK credential triplet, recovery uses a different path. (WebAuthn recovery is out of scope for this SDK doc.)
 
 ---
 
@@ -138,6 +150,8 @@ const freshClient = new SigbashClient({ apiKey, userKey, userSecretKey: newSecre
 //    Note: a full re-key (new musig2 key pair) is the safest approach.
 ```
 
+> **Footgun warning — this is not in-place rotation.** Calling `createKey()` again produces a **new `keyId` and a new on-chain Bitcoin address**. The original address keeps its original keys and policy and is not rewrapped. "Same policy, fresh KMC" means a brand-new key with the same rules — any funds held at the old address must be migrated (spent to the new address) before the old `userSecretKey` is discarded. Plan the migration transaction before rotating credentials.
+
 ---
 
 ## FAQ
@@ -147,9 +161,6 @@ No. The server stores `enc_kek2` (CEK encrypted under `recoveryKEK`), but `recov
 
 **Q: What if both `userSecretKey` and the recovery kit are lost?**  
 The KMC is permanently inaccessible. There is no server-side recovery mechanism. Export and store recovery kits with the same care as private key backups.
-
-**Q: Should I call `exportRecoveryKit()` after every `createKey()` call?**  
-Yes. A new key gets a new CEK and a new `enc_kek2`. Each key has its own recovery kit.
 
 **Q: Does recovering change the on-chain address or policy root?**  
 No. Recovery only decrypts the existing KMC — it does not create a new key, modify the policy, or change any on-chain state.

@@ -1,21 +1,39 @@
 # Admin Operations
 
+This doc covers admin-only operations: pre-registering users, enforcing 2FA,
+updating policies on existing keys, and recovering keys for departed users. All
+snippets assume `adminClient` is a `SigbashClient` constructed with the admin's
+credentials.
+
+See also: [creating-keys.md](creating-keys.md) for non-admin key creation,
+[recovery.md](recovery.md) for user-side recovery kit export.
+
 ## Who is the admin?
 
-The first user to call `createKey()` within a new organisation (identified by
+The first user to call `createKey()` within a new organization (identified by
 `apiKey`) is **automatically promoted to admin**. No explicit setup is required.
 Subsequent users in the same org start as regular users.
+
+There is no `isAdmin()` helper — the caller's role is implied by their
+credentials and revealed by server-side errors when an admin-only operation is
+attempted.
 
 Admin status is:
 - **Org-scoped** — tied to `(apiKey, userKey)`, not just `userKey`
 - **Permanent** — there is no demotion mechanism
 - **Self-protecting** — an admin cannot revoke their own access
 
+> **`apiKey` rotation creates a new org.** Admin promotion is scoped to
+> `(apiKey, userKey)`. Rotating `apiKey` results in a brand-new org with no
+> admin until the first `createKey()` call promotes its caller. Plan rotations
+> carefully — and back up the recovery kits before rotating, since the old
+> org's keys are unreachable from the new credentials.
+
 ---
 
 ## User management
 
-Admins can pre-register users so they are authorised to create keys within the
+Admins can pre-register users so they are authorized to create keys within the
 org before they make their first request.
 
 ```typescript
@@ -23,8 +41,15 @@ org before they make their first request.
 await adminClient.registerUser('alice');
 
 // Remove access from an existing user
-await adminClient.revokeUser('bob');  // throws AdminError if bob is the caller
+await adminClient.revokeUser('bob');  // throws AdminError if the caller is not admin
 ```
+
+An admin cannot revoke their own access — the server rejects self-revocation.
+
+Revocation takes effect on the next request from that user; existing in-flight
+calls are not interrupted. There is no push-style invalidation — the auth check
+happens per request, so a revoked user keeps working until their next call to
+the server.
 
 Both methods throw `AdminError` if the caller is not the org admin.
 
@@ -36,6 +61,9 @@ Both methods throw `AdminError` if the caller is not the org admin.
 creation time. This flag cannot be changed after the key is created.
 
 ### Setup (once per key)
+
+Until `confirmTOTP()` succeeds, any `signPSBT` call on this key will throw
+`TOTPSetupIncompleteError`.
 
 ```typescript
 // 1. Create the key with 2FA required
@@ -54,6 +82,10 @@ const { uri, secret } = await client.registerTOTP(keyId);
 await client.confirmTOTP(keyId, '123456');
 // TOTP is now active — signing will require a code from this point on.
 ```
+
+> **Backup the TOTP secret.** Store `secret` in a password manager as a backup.
+> If the authenticator device is lost and no backup exists, the only recovery
+> path is admin-initiated key recovery (see below) or creating a new key.
 
 ### Signing with 2FA
 
@@ -74,7 +106,7 @@ const result = await client.signPSBT({
 |---|---|
 | `TOTPSetupIncompleteError` | `confirmTOTP()` was never called for this key |
 | `TOTPRequiredError` | Key has 2FA but `totpCode` was not supplied |
-| `TOTPInvalidError` | Code is incorrect, expired, or rate-limit exceeded (5 attempts / 60s) |
+| `TOTPInvalidError` | Code is incorrect, expired, or rate limit exceeded (5 attempts / 60s) |
 
 ---
 
@@ -85,7 +117,12 @@ at creation time lets the org admin replace the policy later via
 `adminUpdatePolicy()`.
 
 Only admins can set the `updateable` flag. For non-admin callers the flag is
-silently ignored.
+silently ignored. Enforcement is server-side (`/api/v2/sdk/keys` endpoint); the
+client always passes the flag through, but the server only honors it for
+admins.
+
+The `keyId`, on-chain `p2trAddress`, and aggregate public key are unchanged by
+a policy update — only the stored policy root changes.
 
 ### Creating an updateable key
 
@@ -135,9 +172,33 @@ users — at the cost of the admin learning the recovered key material.
 
 ### Enable admin recovery (opt-in, off by default)
 
-This feature must be explicitly enabled via the server's admin settings endpoint
-before `adminRecoverKey()` will succeed. Check your server documentation for
-the `POST /api/v2/sdk/admin/settings` endpoint.
+This feature must be explicitly enabled by the admin for their org before
+`adminRecoverKey()` will succeed. There is no typed SDK wrapper for this
+setting; call the admin settings endpoint directly with the admin's
+`authHash` (from `getAuthHash(apiKey, userKey)`):
+
+```typescript
+import { getAuthHash } from '@sigbash/sdk';
+
+const { authHash } = await getAuthHash(apiKey, userKey);
+
+await fetch(`${serverUrl}/api/v2/sdk/admin/settings`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    auth_hash: authHash,
+    allow_admin_recovery: true,
+  }),
+});
+```
+
+This is self-serve — no contact with Sigbash sales is required.
+
+**Obtaining the kit.** The departing user runs `exportRecoveryKit()` (see
+[recovery.md](recovery.md)) and transmits the resulting JSON to the admin
+out-of-band — e.g. via an encrypted file share. The kit's `recoveryKEK` is
+itself sufficient to unwrap the CEK; transmit the file with the same care as a
+private-key backup.
 
 ### Recovery flow
 
@@ -170,40 +231,10 @@ Throws:
 
 ---
 
-## Key index and multi-key orgs
+## Multi-key orgs
 
-A user can hold multiple keys within the same org. Each key is assigned a
-`keyIndex` (0, 1, 2, …) scoped to the user's credential identifier.
-
-```typescript
-// First key — keyIndex defaults to 0
-const { keyId: hotKey } = await client.createKey({ policy: hotPolicy, network: 'signet', require2FA: false, verbose: true });
-
-// Second key — provide keyIndex explicitly to avoid collision
-const { keyId: coldKey } = await client.createKey({ policy: coldPolicy, network: 'signet', require2FA: false, keyIndex: 1, verbose: true });
-```
-
-If the requested `keyIndex` is already taken, the server throws
-`KeyIndexExistsError` and includes `nextAvailableIndex` so the caller can retry:
-
-```typescript
-import { KeyIndexExistsError } from '@sigbash/sdk';
-
-async function createKeyWithAutoIndex(client, options) {
-  let index = options.keyIndex ?? 0;
-  while (true) {
-    try {
-      return await client.createKey({ ...options, keyIndex: index, verbose: true });
-    } catch (err) {
-      if (err instanceof KeyIndexExistsError) {
-        index = err.nextAvailableIndex;
-      } else {
-        throw err;
-      }
-    }
-  }
-}
-```
+Multi-key orgs and `keyIndex` collisions are covered in
+[creating-keys.md § Multiple keys per user](creating-keys.md#multiple-keys-per-user).
 
 ---
 
@@ -211,9 +242,8 @@ async function createKeyWithAutoIndex(client, options) {
 
 | Error class | Code | Cause |
 |---|---|---|
-| `AdminError` | — | Caller is not the org admin |
+| `AdminError` | — | Caller is not the org admin, or `adminUpdatePolicy()` was called on a key not marked `updateable` (server message contains "not marked updateable") |
 | `SigbashSDKError` | `ADMIN_RECOVERY_DISABLED` | `adminRecoverKey()` called but feature not enabled |
-| `SigbashSDKError` | `NOT_UPDATEABLE` | `adminUpdatePolicy()` called on a key not marked `updateable` |
 | `SigbashSDKError` | `NOT_FOUND` | Target user or key does not exist |
 | `SigbashSDKError` | `RECOVERY_KIT_VERSION_MISMATCH` | Recovery kit is from an incompatible SDK version |
 | `SigbashSDKError` | `RECOVERY_KIT_INVALID` | Recovery kit is missing required fields |

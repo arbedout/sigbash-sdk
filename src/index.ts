@@ -98,8 +98,9 @@ export { ErrorCode } from './types';
 
 // Error classes
 export {
-  // New error classes — prefer these
+  // Modern error hierarchy (all extend SigbashSDKError)
   SigbashSDKError,
+  ClientDisposedError,
   KeyIndexExistsError,
   PolicyCompileError,
   MissingOptionError,
@@ -108,17 +109,18 @@ export {
   TOTPInvalidError,
   TOTPSetupIncompleteError,
   NetworkError,
-  // Legacy error classes — @deprecated, kept for backward compatibility.
-  // Scheduled for removal in v2.0.0.
-  SigbashError,
+  // Server-failure classes — first-class members of the modern hierarchy.
   PolicyValidationError,
   AuthenticationError,
-  WasmError,
   NetworkMismatchError,
-  CryptoError,
   ServerError,
-  TimeoutError,
   parseServerError,
+  // Backward-compat surface — kept for old consumer code only.
+  // The SDK itself no longer throws these.
+  SigbashError,
+  WasmError,
+  CryptoError,
+  TimeoutError,
 } from './errors';
 
 // Version metadata
@@ -126,4 +128,4 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.1.8';
+export const SDK_VERSION = '0.2.0';

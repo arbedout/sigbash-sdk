@@ -324,11 +324,6 @@ export interface SignPSBTOptions {
    */
   kmcJSON: string;
   /**
-   * PSBT input index to sign (0-based).
-   * Defaults to 0 (first input) when omitted.
-   */
-  inputIndex?: number;
-  /**
    * Bitcoin network — must match the network stored in the KMC.
    * Defaults to 'signet' when omitted.
    */
@@ -406,7 +401,7 @@ export interface VerifyPSBTResult {
   /** Whether the PSBT passes all policy + nullifier checks. */
   passed: boolean;
   /** Policy path ID that would be satisfied. */
-  pathID: string;
+  pathId: string;
   /** Human-readable description of the satisfied clause. */
   satisfiedClause: string;
   /** Per-input nullifier availability. */

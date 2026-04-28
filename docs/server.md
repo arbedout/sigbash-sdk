@@ -6,6 +6,58 @@ any language that can make HTTP requests.
 
 ---
 
+## Quickstart
+
+1. **Install and run** the server (`npm install express @sigbash/sdk && node server.js`,
+   or `docker run`). See [Running Standalone](#running-standalone) /
+   [Running with Docker](#running-with-docker).
+2. **Bootstrap credentials** by calling `POST /setup/credentials` — see
+   [Bootstrap](#bootstrap-generating-credentials).
+3. **Write `.env`** yourself from the values returned in step 2. The endpoint
+   does not write any files.
+4. **Create a key** via `POST /keys` with your POET policy — see
+   [Registering a Key](#registering-a-key). Save the returned `keyId`.
+5. **Fund the wallet** by importing the returned `bip328Xpub` into a descriptor
+   or multisig wallet of your choice. Do **not** fund the low-level
+   `p2trAddress` directly.
+6. **Sign a PSBT** via `POST /keys/:keyId/sign` — see
+   [Signing a PSBT](#signing-a-psbt).
+
+> **Mainnet.** All keys are signet-only by default. The only setup step
+> required to enable mainnet is registering your `apikeyHash` with Sigbash —
+> see [Bootstrap](#bootstrap-generating-credentials) for how to obtain it, then
+> email [sales@sigbash.com](mailto:sales@sigbash.com).
+
+> **First-call WASM warmup.** The first signing call after server start
+> involves cold WASM proof generation and may take noticeably longer than
+> subsequent calls. The server has `setTimeout(0)` on the underlying socket so
+> it will wait, but raise client-side HTTP timeouts accordingly.
+
+---
+
+## Endpoint summary
+
+| Method | Path | Purpose | Auth |
+|---|---|---|---|
+| `GET` | `/health` | Liveness probe | none |
+| `POST` | `/setup/credentials` | Generate a fresh credential triplet | none |
+| `GET` | `/setup/auth-hash` | Return `apikeyHash` / `authHash` for the configured creds | required |
+| `GET` | `/keys` | List keys for the caller (slim summary) | required |
+| `POST` | `/keys` | Register a new key under a POET policy | required |
+| `GET` | `/keys/:keyId` | Get a key (slim by default; `?verbose=true` for `kmcJSON`) | required |
+| `POST` | `/keys/:keyId/sign` | Sign a PSBT (consumes a nullifier) | required |
+| `POST` | `/keys/:keyId/verify` | Dry-run policy check (no nullifier consumed) | required |
+| `POST` | `/keys/:keyId/totp/register` | Begin TOTP enrolment (returns `otpauth://` URI + secret) | required |
+| `POST` | `/keys/:keyId/totp/confirm` | Confirm TOTP enrolment with the first 6-digit code | required |
+| `GET` | `/keys/:keyId/recovery-kit` | Export a recovery kit | required |
+| `POST` | `/recovery` | Self-recover from a kit (caller still has `apiKey`/`userKey`) | required |
+| `POST` | `/admin/recover` | Admin-recover a departed user's key | admin |
+| `POST` | `/keys/:keyId/update-policy` | Replace the POET policy on an `updateable` key | admin |
+| `POST` | `/admin/users` | Pre-register a user | admin |
+| `DELETE` | `/admin/users/:userKey` | Revoke a user | admin |
+
+---
+
 ## Prerequisites
 
 - Node.js 18+ (or Docker)
@@ -21,9 +73,13 @@ The server resolves credentials per request in this order:
 2. Environment variables
 3. `X-Sigbash-*` request headers
 
-This means the server starts without credentials and becomes fully functional
-as soon as credentials are available by any of these methods. It also means the
-same server instance can serve multiple callers with different credentials via headers.
+Because resolution happens on every request, the server can start without
+credentials and become fully functional as soon as any of these sources
+provides them — no restart required.
+
+The header path is what makes the server multi-tenant: a single running
+instance can serve multiple callers simultaneously, each supplying their own
+credentials per request via `X-Sigbash-*` headers.
 
 | Source | Keys |
 |---|---|
@@ -90,9 +146,11 @@ docker run --rm -p 3000:3000 --env-file .env sigbash-server
 
 ## Bootstrap: Generating Credentials
 
-The server starts without credentials. Call `/setup/credentials` to generate a
-fresh triplet, write the values to `.env`, and subsequent requests will pick
-them up automatically — no restart needed.
+The server starts without credentials. Call `POST /setup/credentials` to
+generate a fresh triplet. **The endpoint only returns JSON — it does not write
+any files.** You are responsible for placing the values into `.env` (or
+exporting them as env vars). Once `.env` is in place, the next request will
+pick the new credentials up automatically — no restart required.
 
 ```bash
 # Generate a fresh credential triplet
@@ -108,7 +166,7 @@ curl -s -X POST http://localhost:3000/setup/credentials | python3 -m json.tool
 }
 ```
 
-Write these into `.env`:
+Write these into `.env` yourself:
 
 ```
 SIGBASH_API_KEY=a3f1c8...e8d2
@@ -116,8 +174,7 @@ SIGBASH_USER_KEY=7b2e4f...1a9c
 SIGBASH_SECRET_KEY=d4c8a1...3f7e
 ```
 
-The server picks up `.env` on the next request — no restart needed. The
-`userSecretKey` is generated locally and never sent to Sigbash.
+The `userSecretKey` is generated locally and never sent to Sigbash.
 
 To get your org identifier (needed to request mainnet access):
 
@@ -134,11 +191,17 @@ curl -s http://localhost:3000/setup/auth-hash | python3 -m json.tool
 ```
 
 Email [sales@sigbash.com](mailto:sales@sigbash.com) with your `apikeyHash` to
-request mainnet access.
+request mainnet access. Beyond registering this hash, no additional setup is
+required — the same credentials and endpoints work for mainnet keys once the
+org is enabled.
 
 ---
 
 ## Registering a Key
+
+See [creating-keys.md](creating-keys.md) for the full key-creation model
+(policy compilation, `keyIndex`, `updateable`). For a deeper explanation of
+the policy JSON below, see [policy-overview.md](policy-overview.md).
 
 ```bash
 curl -s -X POST http://localhost:3000/keys \
@@ -157,43 +220,106 @@ curl -s -X POST http://localhost:3000/keys \
       }
     },
     "network": "signet",
-    "require2FA": false
+    "require2FA": false,
+    "verbose": true
   }' | python3 -m json.tool
 ```
+
+Successful response (`verbose: true`):
 
 ```json
 {
   "keyId": "key-abc123",
+  "keyIndex": 0,
+  "policyRoot": "a3f1c8...",
   "p2trAddress": "tb1p...",
-  "bip328Xpub": "xpub..."
+  "aggregatePubKeyHex": "02ab12...",
+  "bip328Xpub": "[fingerprint]tpub..."
 }
 ```
 
-Fund the returned `p2trAddress` on signet before signing.
+**Funding the wallet.** Import `bip328Xpub` into a descriptor or multisig
+wallet of your choice (e.g. as a singlesig taproot descriptor). Treat
+`p2trAddress` as a low-level artifact — it is the first derived address but
+not the funding instrument. Always fund via the wallet you imported the xpub
+into. This matches the guidance in
+[getting-started.md](getting-started.md) and
+[creating-keys.md](creating-keys.md).
+
+### Handling `keyIndex` collisions
+
+If you supply an explicit `keyIndex` that is already in use, the server
+returns HTTP `409` with a `nextAvailableIndex` field. Retry with that value:
+
+```bash
+RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
+  -H 'Content-Type: application/json' \
+  -d '{ "policy": {...}, "network": "signet", "keyIndex": 0 }')
+
+NEXT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('nextAvailableIndex',''))" 2>/dev/null)
+if [ -n "$NEXT" ]; then
+  # Retry with $NEXT as keyIndex
+  ...
+fi
+```
+
+This mirrors the retry pattern documented in `AGENTS.md`.
+
+---
+
+## Listing Keys
+
+`GET /keys` returns lightweight metadata for every key registered by the
+caller. No KMC decryption happens, so it's cheap to poll:
+
+```bash
+curl -s http://localhost:3000/keys | python3 -m json.tool
+```
+
+```json
+[
+  { "keyId": "0", "network": "signet", "policyRoot": "a3f1c8...", "bip328Xpub": "[fp]tpub..." },
+  { "keyId": "1", "network": "signet", "policyRoot": "9c2e4f...", "bip328Xpub": "[fp]tpub..." }
+]
+```
+
+Use this to:
+
+- Discover the next free `keyIndex` before creating a new key.
+- Look up an existing `keyId` to pass to other endpoints (sign, verify,
+  recovery-kit, etc.).
 
 ---
 
 ## Retrieving a Key
 
-By default, `GET /keys/:keyId` returns a slim summary:
+`GET /keys/:keyId` returns a slim summary by default. Pass `?verbose=true` to
+include the `kmcJSON` required for signing.
 
-```bash
-curl -s http://localhost:3000/keys/0 | python3 -m json.tool
-```
+**Slim** (`GET /keys/0`):
 
 ```json
 {
+  "keyId": "0",
   "keyIndex": 0,
   "policyRoot": "a3f1c8...",
   "bip328Xpub": "[fingerprint]tpub...",
-  "poetJSON": { "version": "1.1", "policy": { "..." } }
+  "updateable": false
 }
 ```
 
-To get the full key material including `kmcJSON` (required for signing), pass `?verbose=true`:
+**Verbose** (`GET /keys/0?verbose=true`):
 
-```bash
-curl -s "http://localhost:3000/keys/0?verbose=true" | python3 -m json.tool
+```json
+{
+  "keyId": "0",
+  "keyIndex": 0,
+  "policyRoot": "a3f1c8...",
+  "bip328Xpub": "[fingerprint]tpub...",
+  "network": "signet",
+  "kmcJSON": "{\"...\":\"...\"}",
+  "poetJSON": { "version": "1.1", "policy": { "...": "..." } }
+}
 ```
 
 The `kmcJSON` field from the verbose response is required for signing.
@@ -244,6 +370,67 @@ curl -s -X POST http://localhost:3000/keys/key-abc123/verify \
 
 ---
 
+## Two-factor authentication
+
+Keys created with `"require2FA": true` reject any signing request that does
+not include a current TOTP code. Enrolment is two steps:
+
+```bash
+# 1. Begin enrolment — returns an otpauth:// URI and the raw secret
+curl -s -X POST http://localhost:3000/keys/key-abc123/totp/register | python3 -m json.tool
+```
+
+```json
+{
+  "uri": "otpauth://totp/Sigbash:key-abc123?secret=JBSWY3DPEHPK3PXP&issuer=Sigbash",
+  "secret": "JBSWY3DPEHPK3PXP"
+}
+```
+
+Render `uri` as a QR code in the user's authenticator app. Optionally store
+`secret` as a backup.
+
+```bash
+# 2. Confirm with the first 6-digit code from the authenticator app
+curl -s -X POST http://localhost:3000/keys/key-abc123/totp/confirm \
+  -H 'Content-Type: application/json' \
+  -d '{ "totpCode": "123456" }' | python3 -m json.tool
+```
+
+```json
+{ "ok": true }
+```
+
+After confirmation, every signing request must include `totpCode` and
+`require2FA: true` in the body. Errors return HTTP `401`:
+
+| Error class | When |
+|---|---|
+| `TOTPRequiredError` | Key has 2FA but no `totpCode` was supplied |
+| `TOTPInvalidError` | Code is wrong, expired, or rate-limit exceeded (5 attempts / 60s) |
+| `TOTPSetupIncompleteError` | `confirmTOTP()` was never called for this key |
+
+See [admin.md § 2FA enforcement](admin.md#2fa-enforcement) for the underlying
+SDK semantics.
+
+---
+
+## Error responses
+
+The server maps SDK error classes to HTTP status codes:
+
+| HTTP status | Error class | Meaning |
+|---|---|---|
+| `400` | `SigbashSDKError`, `NetworkError` | Generic SDK / network failure |
+| `401` | `TOTPRequiredError`, `TOTPInvalidError` | TOTP missing or invalid |
+| `401` | (credential middleware) | Credentials missing for a non-exempt route |
+| `403` | `AdminError` | Caller is not the org admin, or operation requires admin |
+| `409` | `KeyIndexExistsError` | `keyIndex` already in use; response includes `nextAvailableIndex` |
+| `422` | `PolicyCompileError` | POET policy failed to compile; response includes `compilationTrace` |
+| `500` | (any other) | Unexpected server error |
+
+---
+
 ## Account Recovery
 
 Recovery allows a user (or admin) to regain access to key material after losing
@@ -270,8 +457,8 @@ curl -s http://localhost:3000/keys/key-abc123/recovery-kit | python3 -m json.too
 }
 ```
 
-Store this kit as securely as a private key. Anyone who holds it can decrypt
-the KMC for the matching `keyId`.
+Treat the kit as private-key-equivalent: anyone holding it can decrypt the KMC
+for the matching `keyId`.
 
 ### Self-Recovery from a Kit
 
@@ -293,14 +480,26 @@ curl -s -X POST http://localhost:3000/recovery \
   }' | python3 -m json.tool
 ```
 
-Returns a `GetKeyResult` — same shape as `GET /keys/:keyId`, including `kmcJSON`
-ready for signing.
+Returns a `GetKeyResult` — same shape as `GET /keys/:keyId?verbose=true`,
+including `kmcJSON` ready for signing.
 
 ### Admin-Initiated Recovery
 
-An org admin can recover a **departed user's** key material using a recovery kit
-that was previously exported by that user. Admin-initiated recovery must be
-enabled for the org (contact [sales@sigbash.com](mailto:sales@sigbash.com)).
+An org admin can recover a **departed user's** key material using a recovery
+kit that was previously exported by that user. Admin-initiated recovery is
+**self-serve** — the admin enables it for their own org by calling the admin
+settings endpoint:
+
+```bash
+curl -s -X POST https://www.sigbash.com/api/v2/sdk/admin/settings \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "auth_hash": "<admin authHash from /setup/auth-hash>",
+    "allow_admin_recovery": true
+  }'
+```
+
+Then perform the recovery via the local server:
 
 ```bash
 curl -s -X POST http://localhost:3000/admin/recover \
@@ -320,66 +519,47 @@ curl -s -X POST http://localhost:3000/admin/recover \
   }' | python3 -m json.tool
 ```
 
-The server authenticates the request using the **caller's** credentials (from the
-environment). Returns a `GetKeyResult` with the recovered `kmcJSON`.
+The server authenticates the request using the **caller's** credentials.
+Returns a `GetKeyResult` with the recovered `kmcJSON`.
 
-> **Note:** Without a previously exported recovery kit, admin-initiated recovery
-> is not possible. The `recoveryKEK` is derived from the user's `userSecretKey`,
-> which Sigbash never receives.
+> **Note:** Without a previously exported recovery kit, admin-initiated
+> recovery is not possible. The `recoveryKEK` is derived from the user's
+> `userSecretKey`, which Sigbash never receives.
 
 ---
 
 ## Admin Operations
 
-The first user to call `POST /keys` within a new org (new `apiKey`) is
-automatically promoted to **admin**. Admins have access to three additional
-endpoints. All three require admin credentials to be in scope (`.env`,
-environment variables, or `X-Sigbash-*` headers).
+**The first user to call `POST /keys` within a new org (new `apiKey`) is
+automatically promoted to admin.** Admin status is permanent within that org
+and tied to the `(apiKey, userKey)` pair. There is no explicit registration
+step.
 
-### Register a User
+The four operational scenarios below cover the common admin workflows. See
+[admin.md](admin.md) for the complete admin model.
 
-Pre-authorise a new user to create keys within this org:
+### 1. Onboarding a new team member
+
+Pre-authorise a new user so they can create their own keys within the org:
 
 ```bash
 curl -s -X POST http://localhost:3000/admin/users \
   -H 'Content-Type: application/json' \
-  -d '{"userKey": "<new-user-key>"}' | python3 -m json.tool
+  -d '{ "userKey": "<new-user-key>" }' | python3 -m json.tool
 ```
 
 ```json
 { "ok": true }
 ```
 
-### Revoke a User
+The new member then runs their own bootstrap (`POST /setup/credentials` on
+their own machine) and creates keys via `POST /keys`. The member's
+`userSecretKey` is generated locally and **never reaches the admin or
+Sigbash**.
 
-Remove a user's authorisation. Cannot revoke your own account:
+### 2. Rotating a key's policy
 
-```bash
-curl -s -X DELETE http://localhost:3000/admin/users/<userKey> | python3 -m json.tool
-```
-
-```json
-{ "ok": true }
-```
-
-### Update a Key's Policy
-
-Replace the POET policy on a key that was created with `"updateable": true`.
-Only the org admin can call this endpoint:
-
-```bash
-curl -s -X POST http://localhost:3000/keys/key-abc123/update-policy \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "newPolicyJson": "{\"version\":\"1.1\",\"policy\":{\"type\":\"operator\",\"operator\":\"AND\",\"children\":[{\"type\":\"condition\",\"conditionType\":\"OUTPUT_VALUE\",\"conditionParams\":{\"selector\":\"ALL\",\"operator\":\"LTE\",\"value\":50000}}]}}"
-  }' | python3 -m json.tool
-```
-
-Returns `{ "ok": true }` on success. Returns HTTP 403 if the key is not
-marked `updateable` or the caller is not the admin.
-
-To create an updateable key, include `"updateable": true` in the
-`POST /keys` body:
+A key's policy is immutable unless it was created with `"updateable": true`:
 
 ```bash
 curl -s -X POST http://localhost:3000/keys \
@@ -392,8 +572,63 @@ curl -s -X POST http://localhost:3000/keys \
   }' | python3 -m json.tool
 ```
 
-The `updateable` flag is write-once — it cannot be set or cleared after
-key creation. The slim summary returned by `GET /keys/:keyId` includes
+The `updateable` flag is **write-once** — it cannot be set or cleared after
+key creation, and only admins can set it (the server silently ignores it for
+non-admin callers). The slim `GET /keys/:keyId` summary includes
 `"updateable"` so callers can check without fetching the full KMC.
 
-See [docs/admin.md](admin.md) for a full description of the admin model.
+To replace the policy:
+
+```bash
+curl -s -X POST http://localhost:3000/keys/key-abc123/update-policy \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "newPolicyJson": "{\"version\":\"1.1\",\"policy\":{\"type\":\"operator\",\"operator\":\"AND\",\"children\":[{\"type\":\"condition\",\"conditionType\":\"OUTPUT_VALUE\",\"conditionParams\":{\"selector\":\"ALL\",\"operator\":\"LTE\",\"value\":50000}}]}}"
+  }' | python3 -m json.tool
+```
+
+Returns `{ "ok": true }` on success, or HTTP `403` if the key is not marked
+`updateable` or the caller is not the admin. The on-chain address and
+aggregate key are unchanged — only the stored policy root changes.
+
+### 3. Recovering a departed user's keys
+
+Two prerequisites must both hold:
+
+1. The departing user exported a recovery kit (`GET /keys/:keyId/recovery-kit`)
+   **before** they left, and transmitted it to the admin out-of-band.
+2. The admin enabled `allow_admin_recovery` for the org via the admin
+   settings endpoint:
+
+```bash
+curl -s -X POST https://www.sigbash.com/api/v2/sdk/admin/settings \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "auth_hash": "<admin authHash from /setup/auth-hash>",
+    "allow_admin_recovery": true
+  }'
+```
+
+Then call `/admin/recover` as shown in
+[Admin-Initiated Recovery](#admin-initiated-recovery) above. Cross-link:
+[recovery.md](recovery.md) covers the kit format and threat model.
+
+### 4. Locking out a compromised user
+
+```bash
+curl -s -X DELETE http://localhost:3000/admin/users/<userKey> | python3 -m json.tool
+```
+
+```json
+{ "ok": true }
+```
+
+Revocation is enforced **per request**: the next call from that user fails
+auth, but there is no push-style invalidation. Importantly, **any kits or
+KMCs already exported by the user remain valid** — they were decrypted
+locally and Sigbash cannot reach them. To fully contain a compromise, rotate
+or admin-recover the affected keys in addition to revoking the user. The
+admin cannot revoke their own account.
+
+See [admin.md](admin.md) for the full admin model and SDK-level error
+semantics.
