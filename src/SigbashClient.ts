@@ -480,8 +480,8 @@ export class SigbashClient {
     }
 
     const authHash = await this._authHash;
-    const url = `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys?auth_hash=${authHash}`;
-    const response = await fetch(url);
+    const url = `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys`;
+    const response = await fetch(url, { headers: { 'X-Auth-Hash': authHash } });
     const data = (await response.json()) as {
       success?: boolean;
       keys?: KeyListItem[];
