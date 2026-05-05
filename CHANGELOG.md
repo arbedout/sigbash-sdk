@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-05
+
+### Breaking
+
+- **`adminUpdatePolicy()` renamed to `updatePolicy()`.**  
+  The method is no longer admin-only: any authenticated user can update the
+  policy on their own updateable keys. Only admins can set `updateable: true`
+  at key creation time — that restriction is unchanged. Rename all
+  `adminUpdatePolicy(...)` calls to `updatePolicy(...)`.
+
+- **Error types from `updatePolicy()` have changed.**  
+  Previously `adminUpdatePolicy()` threw `AdminError` for non-admin callers.
+  `updatePolicy()` now throws `SigbashSDKError` with code `NOT_UPDATEABLE`
+  when the key was not created with `updateable: true`, and `NOT_FOUND` when
+  the key index does not exist for the caller.
+
+- **Server route changed.**  
+  The underlying endpoint moved from `POST /api/v2/sdk/admin/policy/update`
+  to `PATCH /api/v2/sdk/keys/<keyId>/policy`. Only relevant if you are making
+  direct HTTP calls instead of using the SDK method.
+
+### Fixed
+
+- **`registerTOTP()` and `confirmTOTP()` now work correctly.**  
+  Both methods were sending `auth_hash` in the JSON request body; the server
+  reads it only from the `X-Auth-Hash` header. This caused all TOTP setup
+  calls to fail with `INVALID_AUTH_HASH`. Fixed by moving `auth_hash` to the
+  header in both methods.
+
+- **`SDK_VERSION` constant now matches the package version.**  
+  The exported `SDK_VERSION` string was frozen at `0.2.0`; it now reflects
+  the actual published version.
+
 ## [0.3.2] — 2026-05-05
 
 ### Fixed

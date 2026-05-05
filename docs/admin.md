@@ -112,55 +112,16 @@ const result = await client.signPSBT({
 
 ## Updateable policies
 
-By default, a key's POET policy is immutable. Marking a key `updateable: true`
-at creation time lets the org admin replace the policy later via
-`adminUpdatePolicy()`.
+By default, a key's POET policy is immutable. An admin can mark a key
+`updateable: true` at creation time. After that, **any authenticated user —
+admin or regular — can replace the policy on their own updateable keys** via
+`updatePolicy()`.
 
-Only admins can set the `updateable` flag. For non-admin callers the flag is
-silently ignored. Enforcement is server-side (`/api/v2/sdk/keys` endpoint); the
-client always passes the flag through, but the server only honors it for
-admins.
+Only admins can set the `updateable` flag; for non-admin callers it is silently
+ignored. The flag is permanent — it cannot be changed after key creation.
 
-The `keyId`, on-chain `p2trAddress`, and aggregate public key are unchanged by
-a policy update — only the stored policy root changes.
-
-### Creating an updateable key
-
-```typescript
-const { keyId } = await adminClient.createKey({
-  policy: initialPolicy,
-  network: 'signet',
-  require2FA: false,
-  updateable: true,   // admin-only flag
-  verbose: true,
-});
-```
-
-### Updating the policy
-
-```typescript
-import { conditionConfigToPoetPolicy } from '@sigbash/sdk';
-
-const newPolicy = conditionConfigToPoetPolicy({
-  logic: 'AND',
-  conditions: [
-    { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
-    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 5_000 },
-  ],
-});
-
-await adminClient.adminUpdatePolicy(keyId, JSON.stringify(newPolicy));
-// OR: await adminClient.adminUpdatePolicy({ keyId, newPolicyJson: JSON.stringify(newPolicy) });
-```
-
-Under the hood:
-1. The SDK fetches and decrypts the existing KMC from the server
-2. WASM compiles the new policy and updates the KMC in-place
-3. The updated KMC is re-encrypted and stored on the server
-4. The server updates the stored `policy_root` used for ZK proof verification
-
-Throws `AdminError` (HTTP 403) if the key is not marked `updateable` or the
-caller is not the admin.
+See [creating-keys.md § Updating a policy](creating-keys.md#updating-a-policy)
+for the full workflow and code examples.
 
 ---
 
@@ -242,7 +203,7 @@ Multi-key orgs and `keyIndex` collisions are covered in
 
 | Error class | Code | Cause |
 |---|---|---|
-| `AdminError` | — | Caller is not the org admin, or `adminUpdatePolicy()` was called on a key not marked `updateable` (server message contains "not marked updateable") |
+| `SigbashSDKError` | `NOT_UPDATEABLE` | `updatePolicy()` was called on a key not created with `updateable: true` |
 | `SigbashSDKError` | `ADMIN_RECOVERY_DISABLED` | `adminRecoverKey()` called but feature not enabled |
 | `SigbashSDKError` | `NOT_FOUND` | Target user or key does not exist |
 | `SigbashSDKError` | `RECOVERY_KIT_VERSION_MISMATCH` | Recovery kit is from an incompatible SDK version |

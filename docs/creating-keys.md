@@ -112,6 +112,64 @@ equivalent and is not appropriate for taproot outputs.
 
 ---
 
+## Updating a policy
+
+By default a key's policy is immutable once created. If you want to be able to
+replace it later, set `updateable: true` at creation time. **Only an admin can
+set this flag** — for non-admin callers it is silently ignored and the key is
+created as immutable.
+
+Once a key is marked updateable, **any authenticated user — admin or regular —
+can call `updatePolicy()` on their own updateable keys**. The on-chain address
+and aggregate public key are unchanged; only the stored policy root changes.
+
+> **24-hour signing cooldown.** After every successful `updatePolicy()` call the
+> server blocks signing on that key for 24 hours. This gives the key owner a
+> window to detect and contest an unwanted policy swap before any signature can
+> be produced under the new rules.
+
+### Creating an updateable key (admin only)
+
+```typescript
+// Only an admin's createKey() call honours updateable: true.
+const { keyId } = await adminClient.createKey({
+  policy: initialPolicy,
+  network: 'signet',
+  require2FA: false,
+  updateable: true,
+  verbose: true,
+});
+```
+
+### Updating the policy (any key owner)
+
+```typescript
+import { conditionConfigToPoetPolicy } from '@sigbash/sdk';
+
+const newPolicy = conditionConfigToPoetPolicy({
+  logic: 'AND',
+  conditions: [
+    { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 50_000 },
+    { type: 'TX_FEE_ABSOLUTE', operator: 'LTE', value: 5_000 },
+  ],
+});
+
+// Works for any user calling against their own updateable key.
+await client.updatePolicy(keyId, JSON.stringify(newPolicy));
+// OR: await client.updatePolicy({ keyId, newPolicyJson: JSON.stringify(newPolicy) });
+```
+
+Under the hood:
+1. The SDK fetches and decrypts the existing KMC from the server.
+2. WASM compiles the new policy and rewrites the KMC in-place.
+3. The updated KMC is re-encrypted and stored on the server.
+4. The server updates the stored `policy_root` used for ZK proof verification.
+
+Throws `SigbashSDKError` with code `NOT_UPDATEABLE` if the key was not created
+with `updateable: true`.
+
+---
+
 ## Next steps
 
 - [signing.md](signing.md) — sign a PSBT with the key you just created.

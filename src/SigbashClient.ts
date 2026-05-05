@@ -1235,9 +1235,8 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/totp/register`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': authHash },
         body: JSON.stringify({
-          auth_hash: authHash,
           key_id: keyId,
           totp_secret: secret,
         }),
@@ -1275,9 +1274,8 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/totp/verify-setup`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': authHash },
         body: JSON.stringify({
-          auth_hash: authHash,
           key_id: keyId,
           totp_code: totpCode,
         }),
@@ -1879,21 +1877,27 @@ export class SigbashClient {
   }
 
   /**
-   * Update the POET policy for an existing key.
+   * Update the POET policy for an existing updateable key.
+   *
+   * Any authenticated user may call this for their own keys. Only admins can
+   * mark a key `updateable: true` at creation time — after that, the key owner
+   * (admin or regular user) may replace the policy at any time.
    *
    * The method re-encrypts the KMC with the new policy compiled by WASM, stores
    * the updated KMC on the server, and notifies the server of the new policy root.
+   * Signing is blocked for 24 hours after the update to give the key owner time
+   * to detect and contest an unwanted change.
    *
    * @param keyId        - The key identifier returned by createKey()
    * @param newPolicyJson - The new POET v1.1 policy serialised as a JSON string
    *
    * @throws ClientDisposedError if the client has been disposed
    * @throws SigbashSDKError  with code WASM_ERROR if the WASM updatePolicy call fails
-   * @throws AdminError       if the server rejects the request (403)
+   * @throws SigbashSDKError  with code NOT_UPDATEABLE if the key was not created with updateable=true
    */
-  async adminUpdatePolicy(keyId: string, newPolicyJson: string): Promise<void>;
-  async adminUpdatePolicy(opts: UpdatePolicyOptions): Promise<void>;
-  async adminUpdatePolicy(
+  async updatePolicy(keyId: string, newPolicyJson: string): Promise<void>;
+  async updatePolicy(opts: UpdatePolicyOptions): Promise<void>;
+  async updatePolicy(
     keyIdOrOpts: string | UpdatePolicyOptions,
     newPolicyJson?: string,
   ): Promise<void> {
@@ -1974,19 +1978,21 @@ export class SigbashClient {
 
     // Notify the server of the new policy root.
     const policyResponse = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/policy/update`,
+      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys/${keyId}/policy`,
       {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
         body: JSON.stringify({
-          key_id: parseInt(keyId),
           new_policy_root: wasmResult.new_policy_root_hex,
         }),
       }
     );
     if (!policyResponse.ok) {
-      const policyData = await policyResponse.json() as { message?: string };
-      throw new AdminError(policyData.message ?? 'Policy update failed');
+      const policyData = await policyResponse.json() as { code?: string; message?: string };
+      throw new SigbashSDKError(
+        policyData.message ?? `Policy update failed (HTTP ${policyResponse.status})`,
+        policyData.code ?? 'SERVER_ERROR',
+      );
     }
   }
 

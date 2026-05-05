@@ -188,13 +188,13 @@ export interface CreateKeyOptions {
   verbose?: boolean;
 
   /**
-   * When true, marks the key as admin-updateable (policy may be changed via adminUpdatePolicy).
+   * When true, marks the key as admin-updateable (policy may be changed via updatePolicy).
    */
   updateable?: boolean;
 }
 
 /**
- * Options for adminUpdatePolicy().
+ * Options for updatePolicy().
  */
 export interface UpdatePolicyOptions {
   keyId: string;
@@ -233,10 +233,10 @@ export interface KeySummary {
   bip328Xpub: string;
   /** Compiled POET policy as a parsed JSON object. */
   poetJSON: object;
-  /** Whether the admin can replace this key's policy via adminUpdatePolicy(). */
+  /** Whether the admin can replace this key's policy via updatePolicy(). */
   updateable: boolean;
   /**
-   * Number of times this key's policy has been replaced via adminUpdatePolicy().
+   * Number of times this key's policy has been replaced via updatePolicy().
    * Only present when updateable=true and the policy has been updated at least once.
    */
   policyUpdateCount?: number;
