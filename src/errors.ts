@@ -150,7 +150,7 @@ export class ServerError extends SigbashSDKError {
   public readonly details?: any;
 
   constructor(message: string, statusCode?: number, details?: any) {
-    super(message, 'SERVER_ERROR');
+    super(message, (details?.code as ErrorCode) ?? 'SERVER_ERROR');
     this.name = 'ServerError';
     this.statusCode = statusCode;
     this.details = details;

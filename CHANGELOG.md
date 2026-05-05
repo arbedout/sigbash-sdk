@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-05-05
+
+### Fixed
+
+- **`ServerError` now reflects the server's actual error code.**  
+  The constructor was hard-coding `'SERVER_ERROR'` regardless of the `code`
+  field in the server response payload. Socket-level errors such as
+  `NOT_FOUND` are now propagated correctly on `err.code`.
+
 ## [0.4.1] — 2026-05-05
 
 ### Fixed
