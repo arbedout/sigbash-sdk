@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-05-05
+
+### Fixed
+
+- **`updatePolicy()` now propagates server error codes from the KMC update step.**  
+  The KMC write preceding the policy PATCH was discarding the server's `code`
+  field and always throwing `SigbashSDKError('SERVER_ERROR')`. Errors such as
+  `NOT_FOUND` are now forwarded correctly.
+
 ## [0.4.0] — 2026-05-05
 
 ### Breaking

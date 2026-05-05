@@ -1969,10 +1969,10 @@ export class SigbashClient {
       }
     );
     if (!kmcResponse.ok) {
-      const kmcData = await kmcResponse.json() as { message?: string };
+      const kmcData = await kmcResponse.json() as { code?: string; message?: string };
       throw new SigbashSDKError(
         kmcData.message ?? `Failed to store updated KMC (HTTP ${kmcResponse.status})`,
-        'SERVER_ERROR',
+        kmcData.code ?? 'SERVER_ERROR',
       );
     }
 
