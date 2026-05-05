@@ -1,6 +1,6 @@
 {
   "name": "@sigbash/sdk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "TypeScript SDK for Sigbash oblivious signing platform",
   "main": "./dist/index.cjs",

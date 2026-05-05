@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-05-05
+
+### Fixed
+
+- `SigbashClient` now authenticates the `/api/v2/sdk` socket at connect time
+  by passing `{ auth_hash, apikey_hash }` in the Socket.IO handshake auth
+  payload. Previously the socket was created without credentials, so
+  `register_key_with_hash` (and all other SDK socket events) failed with
+  `auth_hash must be a 64-character lowercase hex string` because the server
+  reads `session['credential_id']` set at connect time, not from the event
+  payload. Matches the existing pattern used by the `/api/v2/musig2` socket
+  since 0.2.2.
+- Removed the eager unauthenticated socket creation from the `SigbashClient`
+  constructor; the SDK socket is now lazily created on first use (same
+  pattern as `_musig2Socket`).
+
 ## [0.3.1] — 2026-05-05
 
 ### Security
