@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] — 2026-05-05
+
+### Changed
+
+- Removed unused fields from the `sign_with_hash_auth` preflight payload.
+
 ## [0.4.2] — 2026-05-05
 
 ### Fixed

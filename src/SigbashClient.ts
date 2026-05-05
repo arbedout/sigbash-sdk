@@ -1038,7 +1038,6 @@ export class SigbashClient {
       await sdkSocket.request('sign_with_hash_auth', {
         auth_hash: authHash,
         key_id: options.keyId,
-        psbt_hex: psbtBase64,
         totp_code: options.totpCode ?? null,
       });
     } catch (err) {
