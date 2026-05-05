@@ -315,9 +315,6 @@ export class SigbashClient {
     this._authHash = doubleSha256(this._apiKey, this._userKey);
     this._apikeyHash = doubleSha256(this._apiKey, this._apiKey);
 
-    // Eagerly initialize the Socket.IO connection
-    this._socket = new SigbashSocket(this._serverUrl);
-
     // BYO key path: validate immediately via WASM and pre-compute commitments
     const raw = options.musig2PrivateKey;
     if (raw !== undefined && raw !== null) {
@@ -1440,7 +1437,20 @@ export class SigbashClient {
 
   private _requireSocket(): SigbashSocket {
     if (this._socket === null) {
-      this._socket = new SigbashSocket(this._serverUrl);
+      const authHashPromise = this._authHash;
+      const apikeyHashPromise = this._apikeyHash;
+      const authProvider = (
+        cb: (
+          payload: { auth_hash?: string; apikey_hash?: string } | undefined
+        ) => void
+      ): void => {
+        Promise.all([authHashPromise, apikeyHashPromise])
+          .then(([authHash, apikeyHash]) =>
+            cb({ auth_hash: authHash, apikey_hash: apikeyHash })
+          )
+          .catch(() => cb(undefined));
+      };
+      this._socket = new SigbashSocket(this._serverUrl, '/api/v2/sdk', authProvider);
     }
     return this._socket;
   }
