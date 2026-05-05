@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] — 2026-05-05
+
+### Changed
+
+- **`loadWasm()` now auto-fetches the WASM integrity hash by default.**  
+  When `expectedHash` is not supplied, the loader fetches `wasm-version.json`
+  from the same origin as `wasmUrl` and uses its `sha384` field for SHA-384
+  integrity verification. Mirrors the behaviour of the bundled HTTP server
+  (`server.js`). Customers who pin a specific `expectedHash` continue to
+  override the auto-fetch unchanged.
+
 ## [0.4.3] — 2026-05-05
 
 ### Changed

@@ -76,6 +76,45 @@ function constantTimeCompare(a: string, b: string): boolean {
 }
 
 /**
+ * Decode a base64 string to a lowercase hex string.
+ */
+function base64ToHex(b64: string): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(b64, 'base64').toString('hex');
+  }
+  const binary = atob(b64);
+  let hex = '';
+  for (let i = 0; i < binary.length; i++) {
+    hex += binary.charCodeAt(i).toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+/**
+ * Try to fetch wasm-version.json from the same origin as wasmUrl and return
+ * its sha384 as a hex string. Returns null if metadata is unavailable so the
+ * caller can fall through to the explicit-hash error/warn path.
+ *
+ * The metadata file is published alongside the WASM binary by the build
+ * pipeline (see sdk/wasm-version.json, served at the server root).
+ */
+async function fetchWasmIntegrityHash(wasmUrl: string): Promise<string | null> {
+  if (!wasmUrl.startsWith('http://') && !wasmUrl.startsWith('https://')) {
+    return null;
+  }
+  try {
+    const versionUrl = new URL('wasm-version.json', wasmUrl).href;
+    const res = await fetch(versionUrl);
+    if (!res.ok) return null;
+    const meta = (await res.json()) as { sha384?: string };
+    if (typeof meta.sha384 !== 'string' || meta.sha384.length === 0) return null;
+    return base64ToHex(meta.sha384);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Verify WASM binary integrity
  */
 async function verifyIntegrity(
@@ -299,9 +338,22 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
     wasmBuffer = await loadWasmNode(wasmUrl, onProgress);
   }
 
-  // R4: Mandatory integrity verification in production
-  if (expectedHash) {
-    await verifyIntegrity(wasmBuffer, expectedHash, onProgress);
+  // Mandatory integrity verification.
+  // If the caller didn't supply expectedHash, try fetching wasm-version.json
+  // (sibling of wasmUrl) and use its sha384 — same metadata file the HTTP
+  // server path consumes. Falls through to the existing error/warn path if
+  // the metadata isn't available.
+  let resolvedHash = expectedHash;
+  if (!resolvedHash) {
+    const fetched = await fetchWasmIntegrityHash(wasmUrl);
+    if (fetched) {
+      resolvedHash = fetched;
+      onProgress?.(68, 'Loaded integrity hash from wasm-version.json');
+    }
+  }
+
+  if (resolvedHash) {
+    await verifyIntegrity(wasmBuffer, resolvedHash, onProgress);
   } else if (process.env.NODE_ENV === 'production') {
     throw new Error(
       'WASM integrity hash required in production mode. ' +
