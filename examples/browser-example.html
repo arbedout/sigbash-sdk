@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sigbash SDK — Browser Example</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 860px;
+      margin: 40px auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    .card {
+      padding: 15px 20px;
+      margin: 16px 0;
+      border-radius: 6px;
+      background: #f0f0f0;
+    }
+    .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+    .error   { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+    .info    { background: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; }
+    .progress-bar {
+      width: 100%; height: 16px;
+      background: #e9ecef; border-radius: 8px; overflow: hidden; margin: 8px 0;
+    }
+    .progress-fill { height: 100%; background: #007bff; transition: width 0.2s ease; }
+    button {
+      background: #007bff; color: white; border: none;
+      padding: 10px 22px; border-radius: 5px; cursor: pointer;
+      font-size: 15px; margin-right: 8px;
+    }
+    button:hover   { background: #0056b3; }
+    button:disabled { background: #6c757d; cursor: not-allowed; }
+    pre {
+      background: #f8f9fa; padding: 12px; border-radius: 5px;
+      overflow-x: auto; font-size: 13px;
+    }
+    label { display: block; margin: 8px 0 2px; font-weight: 600; }
+    input[type="text"] {
+      width: 100%; padding: 8px; font-size: 14px;
+      border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
+    }
+    .section { margin: 24px 0; }
+  </style>
+</head>
+<body>
+  <h1>Sigbash SDK — Browser Example</h1>
+  <p>This page demonstrates the complete Sigbash signing flow in a browser environment.</p>
+
+  <!-- Step 1: Load WASM -->
+  <div class="section">
+    <h2>Step 1 — Load WASM</h2>
+    <div class="card info">
+      <p>The WASM binary must be loaded once before using <code>SigbashClient</code>.</p>
+      <label for="wasmUrl">WASM URL</label>
+      <input type="text" id="wasmUrl" value="https://www.sigbash.com/sigbash.wasm">
+      <br><br>
+      <button id="loadBtn" onclick="doLoadWasm()">Load WASM</button>
+      <div class="progress-bar" id="progressBar" style="display:none">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+      <p id="progressText"></p>
+    </div>
+    <div id="wasmResult"></div>
+  </div>
+
+  <!-- Step 2: Configure client -->
+  <div class="section">
+    <h2>Step 2 — Configure Client</h2>
+    <div class="card">
+      <label for="serverUrl">Server URL</label>
+      <input type="text" id="serverUrl" value="https://www.sigbash.com">
+      <label for="apiKey">API Key</label>
+      <input type="text" id="apiKey" placeholder="your-api-key">
+      <label for="userKey">User Key</label>
+      <input type="text" id="userKey" placeholder="alice">
+      <label for="secretKey">User Secret Key</label>
+      <input type="text" id="secretKey" placeholder="super-secret-32bytes">
+    </div>
+  </div>
+
+  <!-- Step 3: Create key -->
+  <div class="section">
+    <h2>Step 3 — Create Key (OUTPUT_VALUE &lt;= 100,000 sats)</h2>
+    <button id="createKeyBtn" onclick="doCreateKey()" disabled>Create Key</button>
+    <div id="createKeyResult"></div>
+  </div>
+
+  <!-- Step 4: Sign PSBT -->
+  <div class="section">
+    <h2>Step 4 — Sign PSBT</h2>
+    <div class="card">
+      <label for="psbtInput">PSBT (base64)</label>
+      <input type="text" id="psbtInput" placeholder="Paste base64 PSBT here">
+    </div>
+    <button id="signBtn" onclick="doSign()" disabled>Sign PSBT</button>
+    <div id="signResult"></div>
+  </div>
+
+  <script type="module">
+    import { loadWasm, SigbashClient, conditionConfigToPoetPolicy, KeyIndexExistsError, PolicyCompileError } from '../dist/index.mjs';
+
+    let client = null;
+    let keyId = null;
+    let kmcJSON = null;
+
+    // ── Load WASM ─────────────────────────────────────────────────────────────
+    window.doLoadWasm = async function() {
+      const loadBtn = document.getElementById('loadBtn');
+      const wasmUrl = document.getElementById('wasmUrl').value.trim();
+      const resultDiv = document.getElementById('wasmResult');
+      const progressBar = document.getElementById('progressBar');
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
+
+      loadBtn.disabled = true;
+      loadBtn.textContent = 'Loading…';
+      progressBar.style.display = 'block';
+      resultDiv.innerHTML = '';
+
+      try {
+        await loadWasm({
+          wasmUrl,
+          onProgress: (pct, stage) => {
+            progressFill.style.width = `${pct}%`;
+            progressText.textContent = `[${pct}%] ${stage}`;
+          },
+        });
+
+        resultDiv.innerHTML = '<div class="card success"><strong>WASM loaded successfully.</strong></div>';
+        loadBtn.textContent = 'WASM Loaded';
+        document.getElementById('createKeyBtn').disabled = false;
+      } catch (err) {
+        resultDiv.innerHTML = `<div class="card error"><strong>WASM load failed:</strong> ${err.message}</div>`;
+        loadBtn.disabled = false;
+        loadBtn.textContent = 'Retry';
+      } finally {
+        progressText.textContent = '';
+      }
+    };
+
+    // ── Create Key ────────────────────────────────────────────────────────────
+    window.doCreateKey = async function() {
+      const btn = document.getElementById('createKeyBtn');
+      const resultDiv = document.getElementById('createKeyResult');
+      btn.disabled = true;
+      btn.textContent = 'Registering…';
+      resultDiv.innerHTML = '';
+
+      try {
+        client = new SigbashClient({
+          serverUrl:     document.getElementById('serverUrl').value.trim(),
+          apiKey:        document.getElementById('apiKey').value.trim(),
+          userKey:       document.getElementById('userKey').value.trim(),
+          userSecretKey: document.getElementById('secretKey').value.trim(),
+        });
+
+        // Simple policy: all outputs <= 100,000 sats
+        const policy = conditionConfigToPoetPolicy({
+          type: 'OUTPUT_VALUE',
+          selector: 'ALL',
+          operator: 'LTE',
+          value: 100_000,
+        });
+
+        const result = await client.createKey({ policy, network: 'signet', require2FA: false });
+        keyId = result.keyId;
+
+        // Retrieve key material
+        const kmc = await client.getKey(keyId);
+        kmcJSON = kmc.kmcJSON;
+
+        resultDiv.innerHTML = `
+          <div class="card success">
+            <strong>Key registered!</strong><br>
+            <code>keyId:</code> ${result.keyId}<br>
+            <code>P2TR address:</code> ${result.p2trAddress}<br>
+            <small>Fund this address on signet, then create a PSBT spending it.</small>
+          </div>`;
+        document.getElementById('signBtn').disabled = false;
+
+      } catch (err) {
+        let html = `<div class="card error"><strong>${err.constructor.name}:</strong> ${err.message}`;
+        if (err instanceof PolicyCompileError) {
+          html += '<br><strong>Compilation trace:</strong><ol>' +
+            err.compilationTrace.map(s => `<li>${s}</li>`).join('') + '</ol>';
+        }
+        if (err instanceof KeyIndexExistsError) {
+          html += `<br>Use <code>keyIndex: ${err.nextAvailableIndex}</code> to register a new key.`;
+        }
+        html += '</div>';
+        resultDiv.innerHTML = html;
+        btn.disabled = false;
+        btn.textContent = 'Create Key';
+      } finally {
+        btn.textContent = 'Create Key';
+      }
+    };
+
+    // ── Sign PSBT ─────────────────────────────────────────────────────────────
+    window.doSign = async function() {
+      const btn = document.getElementById('signBtn');
+      const resultDiv = document.getElementById('signResult');
+      btn.disabled = true;
+      btn.textContent = 'Signing…';
+      resultDiv.innerHTML = '';
+
+      const psbtBase64 = document.getElementById('psbtInput').value.trim();
+      if (!psbtBase64) {
+        resultDiv.innerHTML = '<div class="card error">Please paste a base64 PSBT first.</div>';
+        btn.disabled = false;
+        btn.textContent = 'Sign PSBT';
+        return;
+      }
+
+      try {
+        const result = await client.signPSBT({ keyId, psbtBase64, kmcJSON, network: 'signet' });
+
+        if (result.success) {
+          resultDiv.innerHTML = `
+            <div class="card success">
+              <strong>Signing succeeded!</strong><br>
+              <strong>Satisfied clause:</strong> ${result.satisfiedClause || '(none)'}<br>
+              <strong>txHex:</strong><br><pre>${result.txHex}</pre>
+            </div>`;
+        } else {
+          resultDiv.innerHTML = `<div class="card error"><strong>Signing failed:</strong> ${result.error}</div>`;
+        }
+      } catch (err) {
+        resultDiv.innerHTML = `<div class="card error"><strong>Error:</strong> ${err.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign PSBT';
+      }
+    };
+  </script>
+</body>
+</html>

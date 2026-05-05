@@ -1,0 +1,8 @@
+{
+  "latest_version": "sigbash_20260504_154846.wasm",
+  "sha384": "L53zs5KznjIt8lhVfzYEeUlmezjFy2sf4f9FVPf4iO6nSZzp/bYmQFzjRpIl7Oee",
+  "size_bytes": 11528803,
+  "git_version": "e1164a37",
+  "generated": "2026-05-04T15:48:46Z",
+  "symlink_target": "sigbash.wasm"
+}
