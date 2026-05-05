@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-05
+
+### Security
+
+- Admin methods now send credentials via `X-Auth-Hash` header.
+- KMC updates require proof of key ownership.
+
 ## [0.3.0] — 2026-05-03
 
 ### Added

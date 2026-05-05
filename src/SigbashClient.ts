@@ -408,11 +408,8 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/users`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          auth_hash: callerAuthHash,
-          new_user_auth_hash: newUserAuthHash,
-        }),
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
+        body: JSON.stringify({ new_user_auth_hash: newUserAuthHash }),
       }
     );
 
@@ -445,8 +442,7 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/users/${targetAuthHash}`,
       {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auth_hash: callerAuthHash }),
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
       }
     );
 
@@ -1802,12 +1798,8 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/recover-key`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          auth_hash: callerAuthHash,
-          target_auth_hash: targetAuthHash,
-          key_id: keyId,
-        }),
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
+        body: JSON.stringify({ target_auth_hash: targetAuthHash, key_id: keyId }),
       }
     );
 
@@ -1953,11 +1945,12 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys/${keyId}/kmc`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
         body: JSON.stringify({
-          auth_hash: callerAuthHash,
           encrypted_kmc: JSON.stringify(envelope),
           enc_kek2,
+          client_key_commitment_h1: this.#commitmentH1,
+          client_key_hash: this.#keyHash,
         }),
       }
     );
@@ -1974,9 +1967,8 @@ export class SigbashClient {
       `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/policy/update`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
         body: JSON.stringify({
-          auth_hash: callerAuthHash,
           key_id: parseInt(keyId),
           new_policy_root: wasmResult.new_policy_root_hex,
         }),
