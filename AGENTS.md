@@ -163,6 +163,13 @@ conditionConfigToPoetPolicy({
   ],
 })
 
+// COUNT_BASED_CONSTRAINT reset_interval also accepts duration strings ('6h', '3d', '2w', '30m', etc.)
+// and numeric seconds (e.g. 21600), in addition to the named shorthands above.
+// TypeScript SDK users can use the nUse() helper for a more concise form:
+//   import { nUse } from '@sigbash/sdk';
+//   nUse({ maxUses: 1, period: '6h', namespace: 'vault-warm' })
+//   // => { type: 'COUNT_BASED_CONSTRAINT', max_uses: 1, reset_interval: '6h', counter_namespace: 'vault-warm' }
+
 // Destination allowlist (wrap in NOT for blocklist)
 conditionConfigToPoetPolicy({
   logic: 'AND',

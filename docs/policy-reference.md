@@ -507,11 +507,15 @@ Rate-limits signing sessions using a server-side nullifier counter. When `max_us
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `max_uses` | `number` | yes | Maximum signing sessions per interval |
-| `reset_interval` | `string` | yes | `'never'`, `'daily'`, `'weekly'`, or `'monthly'` |
+| `reset_interval` | `string` | yes | Named shorthands: `'never'`, `'hourly'`, `'daily'`, `'weekly'`, `'monthly'`. Duration strings: any value matching `^(\d+)(s\|m\|h\|d\|w)$` — e.g. `'30m'`, `'6h'`, `'3d'`, `'2w'`. Numeric seconds (e.g. `21600`). Legacy: `'custom'` + `reset_interval_seconds`. |
+| `reset_interval_seconds` | `number` | only when `reset_interval === 'custom'` | Custom interval in seconds (legacy path). Range: `60` (1 minute) to `315_360_000` (10 years). |
 | `reset_type` | `string` | no (default `'rolling'`) | `'rolling'` (relative to first use) or `'calendar'` (midnight UTC) |
 
 ```typescript
 { type: 'COUNT_BASED_CONSTRAINT', max_uses: 5, reset_interval: 'daily', reset_type: 'rolling' }
+
+// Duration string — 1 signing per rolling 6-hour window
+{ type: 'COUNT_BASED_CONSTRAINT', max_uses: 1, reset_interval: '6h' }
 ```
 
 #### `TIME_BASED_CONSTRAINT`

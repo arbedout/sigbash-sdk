@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] — 2026-05-11
+
+### Added
+
+- **Flexible reset intervals for `COUNT_BASED_CONSTRAINT` (SDK-only surface).**  
+  `reset_interval` now accepts arbitrary duration strings matching
+  `^(\d+)(s|m|h|d|w)$` — e.g. `'30m'`, `'6h'`, `'3d'`, `'2w'`, `'90d'` — and
+  raw numeric seconds (e.g. `21600`), in addition to the existing named shorthands
+  (`'never'`, `'hourly'`, `'daily'`, `'weekly'`, `'monthly'`).  
+  Validation bounds are `60 s` (floor) to `315 360 000 s` (10 years, ceiling).
+  Unknown strings now return an error instead of silently defaulting to `'never'`.
+
+- **`nUse()` helper** — new named export for building `COUNT_BASED_CONSTRAINT`
+  conditions with an arbitrary reset period:
+  ```ts
+  import { nUse } from '@sigbash/sdk';
+  nUse({ maxUses: 1, period: '6h', namespace: 'vault-warm' })
+  // => { type: 'COUNT_BASED_CONSTRAINT', max_uses: 1, reset_interval: '6h', counter_namespace: 'vault-warm' }
+  ```
+  Also exports `NUseOptions` and `NUsePeriod` types.
+
+- **`NUsePeriod` type** — union of named intervals, template-literal duration
+  strings (`${number}s`, `${number}m`, `${number}h`, `${number}d`, `${number}w`),
+  and `number` (raw seconds).
+
+### Changed
+
+- Legacy `'custom'` + `reset_interval_seconds` path: validation bounds widened
+  from `[3600, 31 536 000]` to `[60, 315 360 000]`.
+
 ## [0.4.4] — 2026-05-05
 
 ### Changed

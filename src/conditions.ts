@@ -455,14 +455,19 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
       reset_interval: {
         type: 'string',
         description:
-          "How often the counter resets. When set to 'custom', reset_interval_seconds is required.",
+          "How often the counter resets. Accepts named intervals ('never', 'daily', 'weekly', 'monthly'), " +
+          "arbitrary duration strings matching /^(\\d+)(s|m|h|d|w)$/ (e.g. '6h', '3d', '2w', '90d', '30m'), " +
+          "a numeric seconds value, or 'custom' (requires reset_interval_seconds). " +
+          "Named and duration strings cannot be combined with reset_interval_seconds.",
         required: true,
         enum: ['never', 'hourly', 'daily', 'weekly', 'monthly', 'custom'],
       },
       reset_interval_seconds: {
         type: 'number',
         description:
-          'Custom interval length in seconds. Required when reset_interval is "custom". Range: 3600 (1 hour) to 31_536_000 (1 year).',
+          "Custom interval in seconds. Required only when reset_interval is 'custom'. " +
+          'Range: 60 (1 minute) to 315_360_000 (10 years). ' +
+          'For SDK use, prefer duration strings (e.g. "6h") or a numeric reset_interval instead.',
         required: false,
       },
       reset_type: {

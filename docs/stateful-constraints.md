@@ -29,8 +29,8 @@ until the interval resets.
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `max_uses` | `number` | yes | Maximum signing sessions per interval. Range: `1`–`100,000` (engine cap). |
-| `reset_interval` | `string` | yes | `'never'`, `'hourly'`, `'daily'`, `'weekly'`, `'monthly'`, or `'custom'` |
-| `reset_interval_seconds` | `number` | only when `reset_interval === 'custom'` | Custom interval length in seconds. Range: `3600` (1 hour) to `31_536_000` (1 year). |
+| `reset_interval` | `string` | yes | Named shorthands: `'never'`, `'hourly'`, `'daily'`, `'weekly'`, `'monthly'`. Duration strings: any value matching `^(\d+)(s\|m\|h\|d\|w)$` — e.g. `'30m'`, `'6h'`, `'3d'`, `'2w'`, `'90d'`. Numeric seconds (e.g. `21600`). Legacy: `'custom'` (requires `reset_interval_seconds`). |
+| `reset_interval_seconds` | `number` | only when `reset_interval === 'custom'` | Custom interval length in seconds (legacy path). Range: `60` (1 minute) to `315_360_000` (10 years). |
 | `reset_type` | `string` | no (default `'rolling'`) | `'rolling'` or `'calendar'` |
 
 **Reset types:**
@@ -70,7 +70,14 @@ until the interval resets.
   reset_type: 'calendar',
 }
 
-// Custom: 4 uses per rolling 6 hours
+// Custom: 4 uses per rolling 6 hours (preferred — duration string)
+{
+  type: 'COUNT_BASED_CONSTRAINT',
+  max_uses: 4,
+  reset_interval: '6h',
+}
+
+// Same as above — legacy 'custom' path (still supported)
 {
   type: 'COUNT_BASED_CONSTRAINT',
   max_uses: 4,
@@ -78,6 +85,29 @@ until the interval resets.
   reset_interval_seconds: 21600,
 }
 ```
+
+### SDK helper — `nUse()`
+
+The `nUse()` helper is the recommended way to express `COUNT_BASED_CONSTRAINT` in
+TypeScript SDK code. Pass any duration string, named shorthand, or numeric seconds
+to `period`:
+
+```typescript
+import { nUse } from '@sigbash/sdk';
+
+// 1 signing per 6-hour window, scoped to a vault namespace
+nUse({ maxUses: 1, period: '6h', namespace: 'vault-warm' })
+// returns:
+// { type: 'COUNT_BASED_CONSTRAINT', max_uses: 1, reset_interval: '6h', counter_namespace: 'vault-warm' }
+
+// Other valid period values:
+// nUse({ maxUses: 5, period: 'daily' })
+// nUse({ maxUses: 10, period: '30m' })
+// nUse({ maxUses: 1, period: 'never' })
+// nUse({ maxUses: 3, period: 21600 })   // numeric seconds also accepted
+```
+
+`namespace` is optional. Omitting it uses the default counter for the key.
 
 ---
 
@@ -228,7 +258,7 @@ const policy = conditionConfigToPoetPolicy({
 |---|---|---|
 | `verifyPSBT()` returns `available: false` for an input | The key's COUNT counter is exhausted for the current interval, or the current time is outside the TIME window. | Wait for the next reset / time window. See [verifying.md](./verifying.md) for the full availability decision flow. |
 | `signPSBT()` returns `{ success: false }` with a count- or time-related error | Same as above — the constraint failed at signing time. | Wait for the next reset / window, or check the policy with [policy-reference.md](./policy-reference.md). |
-| Wanted to sign earlier than expected | `reset_interval: 'never'` or `max_uses` set too low for the workload. | Re-author the policy with a larger `max_uses` or a shorter interval (or use `'custom'` with `reset_interval_seconds`). |
+| Wanted to sign earlier than expected | `reset_interval: 'never'` or `max_uses` set too low for the workload. | Re-author the policy with a larger `max_uses` or a shorter interval — use a duration string like `'6h'` or `'30m'`, or the legacy `'custom'` path with `reset_interval_seconds`. |
 | Need to confirm a key would sign before broadcasting | Use [`verifyPSBT()`](./verifying.md) — it evaluates the full policy (including stateful constraints) without consuming a counter slot. |
 
 See also: [signing.md](./signing.md), [policy-reference.md](./policy-reference.md), [verifying.md](./verifying.md).

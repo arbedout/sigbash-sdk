@@ -50,6 +50,10 @@ export type {
   ConditionConfigOperator,
 } from './policy-builder';
 
+// COUNT_BASED_CONSTRAINT helper with arbitrary reset periods (SDK-only surface)
+export { nUse } from './n-use';
+export type { NUseOptions, NUsePeriod } from './n-use';
+
 // Socket abstraction
 export { SigbashSocket } from './socket';
 
@@ -128,4 +132,4 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.4.4';
+export const SDK_VERSION = '0.4.5';
