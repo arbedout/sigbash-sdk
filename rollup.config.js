@@ -27,6 +27,15 @@ export default {
       useTsconfigDeclarationDir: false
     })
   ],
-  // socket.io-client is a heavy runtime dependency; leave it to the consumer to provide
-  external: ['socket.io-client']
+  // socket.io-client is a heavy runtime dependency; leave it to the consumer to provide.
+  // @noble/* ship as ESM with TypeScript sources alongside index.js; mark them external
+  // so rpt2 doesn't try to re-compile their .ts files (which trip strict mode against
+  // ArrayBufferLike). Consumers resolve them via their own node_modules.
+  external: [
+    'socket.io-client',
+    '@noble/ed25519',
+    '@noble/hashes/sha512',
+    '@noble/hashes/sha256',
+    '@noble/hashes/hmac',
+  ]
 };

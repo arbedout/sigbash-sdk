@@ -59,6 +59,13 @@ import type { KMCEnvelope, WrappedKey } from './crypto';
 import { buildPolicyFromTemplate } from './templates';
 import { SigbashSocket } from './socket';
 import { getProveWorkerManager } from './prove-worker-manager';
+import {
+  derivePopKey,
+  popKeyFromSeed,
+  signRequest as popSignRequest,
+  signSocketPayload,
+} from './pop';
+import type { PopKey } from './pop';
 
 // ---------------------------------------------------------------------------
 // Internal types for server responses
@@ -280,6 +287,18 @@ export class SigbashClient {
    */
   private readonly _apikeyHash: Promise<string>;
 
+  /**
+   * Promise resolving to the Ed25519 PoP keypair derived from `userSecretKey`.
+   * Each authenticated request and Socket.IO event is signed with this key
+   * so that an exfiltrated `authHash` is not sufficient to authenticate.
+   * See T125 / docs/authentication.md.
+   *
+   * Not `readonly` — `recoverFromKit()` rebinds this to the kit-embedded
+   * popSeed for the duration of the recovery call so that a client with the
+   * wrong `userSecretKey` can still pass the server's PoP check.
+   */
+  private _popKey: Promise<PopKey>;
+
   private _socket: SigbashSocket | null = null;
 
   /**
@@ -314,6 +333,7 @@ export class SigbashClient {
     // Kick off async hash computations immediately
     this._authHash = doubleSha256(this._apiKey, this._userKey);
     this._apikeyHash = doubleSha256(this._apiKey, this._apiKey);
+    this._popKey = derivePopKey(this._userSecretKey);
 
     // BYO key path: validate immediately via WASM and pre-compute commitments
     const raw = options.musig2PrivateKey;
@@ -398,15 +418,28 @@ export class SigbashClient {
    * @throws AdminError if the caller is not an admin
    */
   async registerUser(userKey: string): Promise<void> {
-    const callerAuthHash = await this._authHash;
     const newUserAuthHash = await doubleSha256(this._apiKey, userKey);
+    // T125: every new user row must carry a PoP pubkey. We derive the new
+    // user's pubkey deterministically from their (not yet known) secret —
+    // however, the new user supplies userSecretKey themselves; admins do not
+    // know it. Admins therefore register users by passing the new user's
+    // PoP pubkey, which the new user shares out-of-band. For the common case
+    // where the admin generates the credentials for the new user, they should
+    // call `derivePopKey(newUserSecretKey).publicKeyHex` and supply it via
+    // the lower-level `registerUserWithPubkey(...)` API. The simple
+    // `registerUser(userKey)` path is only safe when the admin is the new
+    // user themselves (same userSecretKey), so we use that key.
+    const popKey = await this._popKey;
 
-    const response = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/users`,
+    const response = await this._authedFetch(
+      '/api/v2/sdk/admin/users',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
-        body: JSON.stringify({ new_user_auth_hash: newUserAuthHash }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_user_auth_hash: newUserAuthHash,
+          new_user_pop_pubkey: popKey.publicKeyHex,
+        }),
       }
     );
 
@@ -431,15 +464,51 @@ export class SigbashClient {
    *
    * @throws AdminError if the caller is not an admin
    */
+  /**
+   * Admin-only: enable or disable admin-initiated key recovery for this org.
+   *
+   * Wraps PATCH /api/v2/sdk/admin/settings with the PoP request signature
+   * required by T125.
+   *
+   * @returns The server's updated `allow_admin_recovery` value.
+   * @throws AdminError if the caller is not an admin.
+   */
+  async setAdminRecovery(enable: boolean): Promise<{ allow_admin_recovery: boolean }> {
+    const response = await this._authedFetch(
+      '/api/v2/sdk/admin/settings',
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_admin_recovery: enable }),
+      }
+    );
+    const data = (await response.json()) as {
+      success?: boolean;
+      code?: string;
+      message?: string;
+      allow_admin_recovery?: boolean;
+    };
+    if (!response.ok || data.success !== true) {
+      const code = data.code ?? '';
+      if (code === 'FORBIDDEN' || code === 'UNAUTHORIZED' || response.status === 403) {
+        throw new AdminError(data.message ?? 'Admin access required');
+      }
+      throw new SigbashSDKError(
+        data.message ?? `setAdminRecovery failed (HTTP ${response.status})`,
+        code || 'SERVER_ERROR'
+      );
+    }
+    return { allow_admin_recovery: !!data.allow_admin_recovery };
+  }
+
   async revokeUser(userKey: string): Promise<void> {
-    const callerAuthHash = await this._authHash;
     const targetAuthHash = await doubleSha256(this._apiKey, userKey);
 
-    const response = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/users/${targetAuthHash}`,
+    const response = await this._authedFetch(
+      `/api/v2/sdk/admin/users/${targetAuthHash}`,
       {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
+        headers: { 'Content-Type': 'application/json' },
       }
     );
 
@@ -472,9 +541,7 @@ export class SigbashClient {
       throw new ClientDisposedError();
     }
 
-    const authHash = await this._authHash;
-    const url = `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys`;
-    const response = await fetch(url, { headers: { 'X-Auth-Hash': authHash } });
+    const response = await this._authedFetch('/api/v2/sdk/keys');
     const data = (await response.json()) as {
       success?: boolean;
       keys?: KeyListItem[];
@@ -1065,7 +1132,8 @@ export class SigbashClient {
     const serverBase = this._serverUrl.replace(/\/$/, '');
     (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = serverBase;
     const baseFetch = (globalThis as Record<string, unknown>)['fetch'] as typeof fetch;
-    (globalThis as Record<string, unknown>)['fetch'] = (
+    const popKeyResolved = await this._popKey;
+    (globalThis as Record<string, unknown>)['fetch'] = (async (
       input: Parameters<typeof fetch>[0],
       init?: Parameters<typeof fetch>[1]
     ) => {
@@ -1074,17 +1142,49 @@ export class SigbashClient {
       if (!isRelative) {
         return baseFetch(url as Parameters<typeof fetch>[0], init);
       }
-      // Inject X-Sigbash-Auth so Flask can forward credential_id to Moon for
-      // ProofSessionToken tracking (Wagner k=1 invariant). Without this header,
-      // the HTTP request carries no session cookie (no browser session in Node.js)
-      // and Moon never registers a token for this credential, causing
-      // "Session token superseded" on the WebSocket blind signing request.
+      // WASM-issued HTTP calls: attach X-Sigbash-Auth so Flask can forward
+      // credential_id to Moon for ProofSessionToken tracking (Wagner k=1),
+      // AND attach X-Sigbash-Sig (T125 PoP) so the server's
+      // @require_pop_signature gate accepts the call.
       const existingHeaders = (init?.headers ?? {}) as Record<string, string>;
+      const method = ((init?.method ?? 'GET') as string).toUpperCase();
+      let bodyBytes: Uint8Array;
+      const body = init?.body;
+      if (body == null) {
+        bodyBytes = new Uint8Array(0);
+      } else if (body instanceof Uint8Array) {
+        bodyBytes = body;
+      } else if (typeof body === 'string') {
+        bodyBytes = new TextEncoder().encode(body);
+      } else if (body instanceof ArrayBuffer) {
+        bodyBytes = new Uint8Array(body);
+      } else {
+        // Don't sign streaming/FormData bodies — fall back to legacy header only.
+        bodyBytes = new Uint8Array(0);
+      }
+      let sigHeader: Record<string, string> = {};
+      try {
+        const sig = await popSignRequest({
+          method,
+          path: input as string,
+          bodyBytes,
+          authHash,
+          popKey: popKeyResolved,
+        });
+        sigHeader = { 'X-Sigbash-Sig': sig.value };
+      } catch {
+        // If signing fails, fall through unsigned — server will reject with 401.
+      }
       return baseFetch(url as Parameters<typeof fetch>[0], {
         ...init,
-        headers: { ...existingHeaders, 'X-Sigbash-Auth': authHash },
+        headers: {
+          ...existingHeaders,
+          'X-Auth-Hash': authHash,
+          'X-Sigbash-Auth': authHash,
+          ...sigHeader,
+        },
       });
-    };
+    }) as typeof fetch;
 
     // Derive the policy seed so the WASM can initialize the global SeedManager.
     // The same seed is used in createKey; passing it here ensures signing works
@@ -1227,14 +1327,13 @@ export class SigbashClient {
    * @returns { uri, secret } — URI for QR scan; secret as backup
    */
   async registerTOTP(keyId: string): Promise<{ uri: string; secret: string }> {
-    const authHash = await this._authHash;
     const secret = generateTOTPSecret();
 
-    const response = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/totp/register`,
+    const response = await this._authedFetch(
+      '/api/v2/sdk/totp/register',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': authHash },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key_id: keyId,
           totp_secret: secret,
@@ -1267,13 +1366,11 @@ export class SigbashClient {
    * @throws TOTPInvalidError if the provided code is incorrect
    */
   async confirmTOTP(keyId: string, totpCode: string): Promise<void> {
-    const authHash = await this._authHash;
-
-    const response = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/totp/verify-setup`,
+    const response = await this._authedFetch(
+      '/api/v2/sdk/totp/verify-setup',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': authHash },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key_id: keyId,
           totp_code: totpCode,
@@ -1432,24 +1529,179 @@ export class SigbashClient {
   // Private helpers
   // -------------------------------------------------------------------------
 
+  /**
+   * Perform an authenticated REST request: attaches `X-Auth-Hash` and a
+   * fresh `X-Sigbash-Sig` PoP header. Accepts absolute or relative URLs;
+   * relative URLs are resolved against the configured serverUrl.
+   */
+  private async _authedFetch(
+    input: string,
+    init?: RequestInit & { body?: string | Uint8Array | undefined },
+  ): Promise<Response> {
+    const authHash = await this._authHash;
+    const popKey = await this._popKey;
+
+    const isRelative = typeof input === 'string' && input.startsWith('/');
+    const url = isRelative
+      ? `${this._serverUrl.replace(/\/$/, '')}${input}`
+      : input;
+
+    // Determine method (default GET) and body bytes for signing.
+    const method = (init?.method ?? 'GET').toUpperCase();
+    let bodyBytes: Uint8Array;
+    if (init?.body == null) {
+      bodyBytes = new Uint8Array(0);
+    } else if (init.body instanceof Uint8Array) {
+      bodyBytes = init.body;
+    } else if (typeof init.body === 'string') {
+      bodyBytes = new TextEncoder().encode(init.body);
+    } else {
+      // Should not happen — _authedFetch only callers pass strings/bytes.
+      bodyBytes = new TextEncoder().encode(String(init.body));
+    }
+
+    const pathForSig = isRelative ? input : (() => {
+      try {
+        const u = new URL(url);
+        return u.pathname + u.search;
+      } catch {
+        return url;
+      }
+    })();
+
+    const sig = await popSignRequest({
+      method,
+      path: pathForSig,
+      bodyBytes,
+      authHash,
+      popKey,
+    });
+
+    const headers: Record<string, string> = {
+      ...(init?.headers as Record<string, string> | undefined),
+      'X-Auth-Hash': authHash,
+      'X-Sigbash-Sig': sig.value,
+    };
+    return fetch(url, { ...init, headers });
+  }
+
+  /**
+   * Build the auth payload sent at Socket.IO handshake time. Returns a
+   * promise that resolves to { auth_hash, apikey_hash, pop_pubkey,
+   * _sigbash_sig } — the server's connect handler validates the signature
+   * before accepting the connection.
+   */
+  private async _buildHandshakeAuth(namespace: string): Promise<{
+    auth_hash: string;
+    apikey_hash: string;
+    pop_pubkey: string;
+    _sigbash_sig: string;
+  }> {
+    const [authHash, apikeyHash, popKey] = await Promise.all([
+      this._authHash,
+      this._apikeyHash,
+      this._popKey,
+    ]);
+    const basePayload = {
+      auth_hash: authHash,
+      apikey_hash: apikeyHash,
+      pop_pubkey: popKey.publicKeyHex,
+    };
+    const sig = await signSocketPayload(namespace, '', basePayload, authHash, popKey);
+    return { ...basePayload, _sigbash_sig: sig.value };
+  }
+
   private _requireSocket(): SigbashSocket {
     if (this._socket === null) {
-      const authHashPromise = this._authHash;
-      const apikeyHashPromise = this._apikeyHash;
       const authProvider = (
         cb: (
-          payload: { auth_hash?: string; apikey_hash?: string } | undefined
+          payload:
+            | { auth_hash?: string; apikey_hash?: string; pop_pubkey?: string; _sigbash_sig?: string }
+            | undefined
         ) => void
       ): void => {
-        Promise.all([authHashPromise, apikeyHashPromise])
-          .then(([authHash, apikeyHash]) =>
-            cb({ auth_hash: authHash, apikey_hash: apikeyHash })
-          )
+        this._buildHandshakeAuth('/api/v2/sdk')
+          .then(payload => cb(payload))
           .catch(() => cb(undefined));
       };
       this._socket = new SigbashSocket(this._serverUrl, '/api/v2/sdk', authProvider);
+      this._wrapSocketEmitForPoP(this._socket, '/api/v2/sdk');
     }
     return this._socket;
+  }
+
+  /**
+   * Wrap the raw socket's `emit` so every outgoing event payload carries
+   * a fresh `_sigbash_sig` field. This is the chokepoint for both
+   * SDK-internal emits (via SigbashSocket.request) and WASM-issued emits
+   * (which read globalThis.sharedMusigSocket).
+   *
+   * Idempotent — only wraps once per socket.
+   */
+  private _wrapSocketEmitForPoP(socket: SigbashSocket, namespace: string): void {
+    const rs = socket.rawSocket as unknown as {
+      emit: (...args: unknown[]) => unknown;
+      __sigbashEmitWrapped__?: boolean;
+    };
+    if (rs.__sigbashEmitWrapped__) return;
+    const originalEmit = rs.emit.bind(rs);
+    const authHashPromise = this._authHash;
+    const popKeyPromise = this._popKey;
+    const queueEmit = async (args: unknown[]): Promise<void> => {
+      try {
+        const [eventName, payload, ...rest] = args;
+        // Acknowledgement callbacks (typeof === 'function') may appear as the
+        // last argument. Detach them so they survive re-emission unchanged.
+        let ackCb: unknown = undefined;
+        let restArgs = rest;
+        if (rest.length > 0 && typeof rest[rest.length - 1] === 'function') {
+          ackCb = rest[rest.length - 1];
+          restArgs = rest.slice(0, -1);
+        }
+
+        const isDictPayload = payload !== null
+          && typeof payload === 'object'
+          && !Array.isArray(payload)
+          && !(payload instanceof Uint8Array)
+          && !(payload instanceof ArrayBuffer);
+        const basePayload: Record<string, unknown> = isDictPayload
+          ? { ...(payload as Record<string, unknown>) }
+          : {};
+        // Strip any prior signature in case the caller is replaying.
+        delete basePayload['_sigbash_sig'];
+
+        const [authHash, popKey] = await Promise.all([authHashPromise, popKeyPromise]);
+        const sig = await signSocketPayload(
+          namespace,
+          eventName as string,
+          basePayload,
+          authHash,
+          popKey,
+        );
+        const signedPayload = { ...basePayload, _sigbash_sig: sig.value };
+
+        const newArgs: unknown[] = [eventName, signedPayload, ...restArgs];
+        if (ackCb !== undefined) newArgs.push(ackCb);
+        originalEmit(...newArgs);
+      } catch (err) {
+        // If signing fails (e.g. crypto not available), surface a console
+        // warning and emit the original payload so existing flows still
+        // attempt to run — the server will reject with SIGNATURE_REQUIRED.
+        if (typeof console !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.warn('[sigbash-sdk] socket emit signing failed:', err);
+        }
+        originalEmit(...args);
+      }
+    };
+    rs.emit = ((...args: unknown[]) => {
+      // socket.io emit is fire-and-forget; we kick off async signing then
+      // return the socket-like object that emit normally returns. The actual
+      // network write happens once signing resolves.
+      void queueEmit(args);
+      return rs;
+    }) as unknown as typeof rs.emit;
+    rs.__sigbashEmitWrapped__ = true;
   }
 
   /**
@@ -1464,38 +1716,24 @@ export class SigbashClient {
    */
   private _requireMusig2Socket(): SigbashSocket {
     if (this._musig2Socket === null) {
-      // Pass an async auth provider so the connect handler can authenticate
-      // this socket via its credential's authHash at handshake time. This
-      // sets session['credential_id'] deterministically before any signing
-      // event fires — eliminating the cross-namespace session-propagation
-      // race that previously caused "WebAuthn session not authenticated"
-      // rejections on rapid multi-sign tests. The provider is also re-invoked
-      // by socket.io-client on automatic reconnect, so the auth survives
-      // transient disconnects.
-      //
-      // apikey_hash is sent alongside auth_hash so the backend can auto-
-      // register the first user for an org as admin (mirroring the SDK
-      // routes' _resolve_or_register_user). Without apikey_hash, first-
-      // time users would be rejected before any HTTP route had a chance
-      // to register them.
-      const authHashPromise = this._authHash;
-      const apikeyHashPromise = this._apikeyHash;
       const authProvider = (
         cb: (
-          payload: { auth_hash?: string; apikey_hash?: string } | undefined
+          payload:
+            | { auth_hash?: string; apikey_hash?: string; pop_pubkey?: string; _sigbash_sig?: string }
+            | undefined
         ) => void
       ): void => {
-        Promise.all([authHashPromise, apikeyHashPromise])
-          .then(([authHash, apikeyHash]) =>
-            cb({ auth_hash: authHash, apikey_hash: apikeyHash })
-          )
+        this._buildHandshakeAuth('/api/v2/musig2')
+          .then(payload => cb(payload))
           .catch(() => cb(undefined));
       };
       this._musig2Socket = new SigbashSocket(
         this._serverUrl,
         '/api/v2/musig2',
-        authProvider
+        authProvider,
       );
+      this._wrapSocketEmitForPoP(this._musig2Socket, '/api/v2/musig2');
+      return this._musig2Socket;
     }
     return this._musig2Socket;
   }
@@ -1651,6 +1889,10 @@ export class SigbashClient {
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
+    // T125: embed the PoP seed so a recovering client (with the wrong
+    // userSecretKey) can still sign requests as this user.
+    const popKey = await this._popKey;
+
     return {
       version: 'sdk-recovery-v1',
       keyId,
@@ -1661,6 +1903,7 @@ export class SigbashClient {
       createdAt: Math.floor(Date.now() / 1000),
       apiKey: this._apiKey,
       userKey: this._userKey,
+      popSeed: popKey.seedHex,
     };
   }
 
@@ -1705,19 +1948,65 @@ export class SigbashClient {
     }
 
     const authHash = await this._authHash;
-    const socket = this._requireSocket();
 
-    // Fetch the current envelope and enc_kek2 from the server.
-    const response = await socket.request<GetKMCResponse>('get_encrypted_kmc', {
-      auth_hash: authHash,
-      key_id: recoveryKit.keyId,
-      key_index: 0,
-    });
-
-    if (!response.encrypted_key_material) {
-      throw new SigbashSDKError('No encrypted_key_material in server response', 'NO_KEY_MATERIAL');
+    // T125: if the kit embeds the original popSeed, rebind this client's
+    // popKey for the duration of the recovery so the server's PoP check
+    // accepts requests even when our userSecretKey is wrong/garbage.
+    // Kits exported before T125 lack popSeed — those clients can only
+    // recover if they still hold the original userSecretKey.
+    const originalPopKey = this._popKey;
+    let usingKitPopKey = false;
+    if (recoveryKit.popSeed) {
+      if (!/^[0-9a-f]{64}$/i.test(recoveryKit.popSeed)) {
+        throw new SigbashSDKError(
+          'Recovery kit popSeed must be 64 lowercase hex chars',
+          'RECOVERY_KIT_INVALID',
+        );
+      }
+      // If the socket was already created with the (wrong-secret) popKey,
+      // tear it down so the next _requireSocket() handshake uses the kit's
+      // popKey.
+      if (this._socket !== null) {
+        try { this._socket.disconnect(); } catch { /* no-op */ }
+        this._socket = null;
+      }
+      this._popKey = popKeyFromSeed(recoveryKit.popSeed);
+      usingKitPopKey = true;
     }
 
+    try {
+      const socket = this._requireSocket();
+
+      // Fetch the current envelope and enc_kek2 from the server.
+      const response = await socket.request<GetKMCResponse>('get_encrypted_kmc', {
+        auth_hash: authHash,
+        key_id: recoveryKit.keyId,
+        key_index: 0,
+      });
+
+      if (!response.encrypted_key_material) {
+        throw new SigbashSDKError('No encrypted_key_material in server response', 'NO_KEY_MATERIAL');
+      }
+
+      return await this._finishRecoverFromKit(recoveryKit, response);
+    } finally {
+      if (usingKitPopKey) {
+        // Restore the original popKey and drop the recovery socket so any
+        // subsequent calls on this client use the user's own credentials.
+        this._popKey = originalPopKey;
+        if (this._socket !== null) {
+          try { this._socket.disconnect(); } catch { /* no-op */ }
+          this._socket = null;
+        }
+      }
+    }
+  }
+
+  /** Continuation of recoverFromKit — split out for the popKey override try/finally above. */
+  private async _finishRecoverFromKit(
+    recoveryKit: SdkRecoveryKit,
+    response: GetKMCResponse,
+  ): Promise<GetKeyResult> {
     // Build the WrappedKey to use for CEK unwrapping.
     // Prefer the server-fetched enc_kek2 (it may have been rotated since the
     // kit was exported).  Fall back to the kit's snapshot if the server returns none.
@@ -1798,14 +2087,13 @@ export class SigbashClient {
       );
     }
 
-    const callerAuthHash = await this._authHash;
     const targetAuthHash = await doubleSha256(this._apiKey, targetUserKey);
 
-    const response = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/admin/recover-key`,
+    const response = await this._authedFetch(
+      '/api/v2/sdk/admin/recover-key',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_auth_hash: targetAuthHash, key_id: keyId }),
       }
     );
@@ -1954,11 +2242,11 @@ export class SigbashClient {
     );
 
     // Store the re-encrypted KMC on the server.
-    const kmcResponse = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys/${keyId}/kmc`,
+    const kmcResponse = await this._authedFetch(
+      `/api/v2/sdk/keys/${keyId}/kmc`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           encrypted_kmc: JSON.stringify(envelope),
           enc_kek2,
@@ -1976,11 +2264,11 @@ export class SigbashClient {
     }
 
     // Notify the server of the new policy root.
-    const policyResponse = await fetch(
-      `${this._serverUrl.replace(/\/$/, '')}/api/v2/sdk/keys/${keyId}/policy`,
+    const policyResponse = await this._authedFetch(
+      `/api/v2/sdk/keys/${keyId}/policy`,
       {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Auth-Hash': callerAuthHash },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           new_policy_root: wasmResult.new_policy_root_hex,
         }),

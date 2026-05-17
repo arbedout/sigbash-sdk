@@ -64,11 +64,14 @@ The returned `SdkRecoveryKit` object looks like:
   "network": "mainnet",
   "createdAt": 1745000000,
   "apiKey": "aabbcc...",
-  "userKey": "ddeeff..."
+  "userKey": "ddeeff...",
+  "popSeed": "7c1d8a...4f2e"
 }
 ```
 
 `apiKey` and `userKey` are always present in kits exported by this SDK version; the type marks them optional only for forward/backward compatibility with older kits. Treat them as required when parsing a kit produced here. Their inclusion makes the kit **fully self-contained**: recovering from it does not require a separately stored `.env` file.
+
+`popSeed` is the 32-byte Ed25519 PoP private seed (T125). The server requires every authenticated request to be signed by the registered `pop_pubkey`; bundling the seed in the kit means a recovering client running with a wrong/garbage `userSecretKey` can still pass the per-request signature check. **Treat `popSeed` with the same care as `recoveryKEK`** — it grants the ability to act as this user on the server. Kits exported before T125 lack this field and cannot be recovered against a T125-enabled server; re-export the kit before relying on it.
 
 ### Security warning
 
@@ -112,11 +115,13 @@ const signed = await client.signPSBT({
 
 ### What happens internally
 
-1. The SDK authenticates with the server using `authHash = DSHA256(apiKey ‖ userKey)`.
-2. The server returns the current encrypted envelope and `enc_kek2`.
-3. The kit's `recoveryKEK` hex is decoded to bytes.
-4. `unwrapCEK(enc_kek2, recoveryKEKBytes)` → 32-byte CEK.
-5. The CEK decrypts the envelope's `ciphertext_package` → KMC.
+1. If the kit contains `popSeed`, the SDK rebinds its in-memory PoP key to the seed before connecting (so the server's per-request signature check accepts the recovering client even though its `userSecretKey` is wrong).
+2. The SDK authenticates with the server using `authHash = DSHA256(apiKey ‖ userKey)` plus a fresh Ed25519 signature from the rebound PoP key.
+3. The server returns the current encrypted envelope and `enc_kek2`.
+4. The kit's `recoveryKEK` hex is decoded to bytes.
+5. `unwrapCEK(enc_kek2, recoveryKEKBytes)` → 32-byte CEK.
+6. The CEK decrypts the envelope's `ciphertext_package` → KMC.
+7. The original PoP key is restored and the recovery socket is disconnected so subsequent calls on the same client revert to the user's own credentials.
 
 ---
 

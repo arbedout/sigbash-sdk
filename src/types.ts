@@ -513,4 +513,16 @@ export interface SdkRecoveryKit {
    * the credential pair can be reconstructed from the kit alone.
    */
   userKey?: string;
+  /**
+   * Hex-encoded 32-byte Ed25519 PoP seed (T125).
+   * The seed is HMAC-derived from the exporting client's `userSecretKey`;
+   * holding it grants the ability to sign requests as the user. Treat with
+   * the same care as `recoveryKEK` — it is part of the same secret bundle.
+   *
+   * Required so a recovering client (running with a wrong/garbage
+   * `userSecretKey`) can still pass the server's per-request PoP check.
+   * Older kits without this field cannot be recovered post-T125 server
+   * upgrade — re-export the kit using a current SDK build.
+   */
+  popSeed?: string;
 }

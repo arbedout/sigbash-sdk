@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-17
+
+### Added
+
+- **Per-request Ed25519 proof-of-possession (PoP) signing.** Every authenticated
+  REST request and Socket.IO event now carries an `X-Sigbash-Sig` /
+  `_sigbash_sig` signature derived from `userSecretKey`. An exfiltrated
+  `authHash` is no longer sufficient to authenticate. See
+  [docs/authentication.md](./docs/authentication.md).
+- `SigbashClient.setAdminRecovery(enable)` — wraps the admin settings PATCH.
+- Recovery kits now include `popSeed` so a recovering client with a wrong
+  `userSecretKey` can still pass the per-request signature check.
+
 ## [0.4.5] — 2026-05-11
 
 ### Added

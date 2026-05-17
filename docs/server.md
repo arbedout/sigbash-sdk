@@ -91,6 +91,20 @@ credentials per request via `X-Sigbash-*` headers.
 Only `/health` and `/setup/credentials` are accessible without credentials.
 All other endpoints return `401` if credentials cannot be resolved.
 
+### Request signing (PoP)
+
+Every authenticated upstream call the server makes to Sigbash is signed with
+an Ed25519 proof-of-possession key derived from `SIGBASH_SECRET_KEY`
+(`HMAC-SHA256(secret, "sigbash/sdk-pop-ed25519/v1")[:32]`). The signing
+happens transparently inside `SigbashClient` — see
+[authentication.md § Per-request Ed25519 proof-of-possession](./authentication.md#per-request-ed25519-proof-of-possession-pop).
+
+This means **`SIGBASH_SECRET_KEY` (or `X-Sigbash-Secret-Key` header) is
+mandatory** for every authenticated route — an `apiKey`/`userKey` pair alone
+is not enough. The first call made by a fresh credential triplet registers
+the derived PoP public key with the server; subsequent calls must come from
+the same triplet (or use a recovery kit that embeds the original `popSeed`).
+
 ---
 
 ## Running Standalone
