@@ -184,7 +184,16 @@ app.post('/keys/:keyId/update-policy', async (req, res) => {
 });
 
 app.post('/admin/users', async (req, res) => {
-  try { await client(req).registerUser(req.body.userKey); res.json({ ok: true }); }
+  try {
+    const { userKey, newUserPopPubkey } = req.body || {};
+    if (!newUserPopPubkey) {
+      return res.status(400).json({
+        error: 'newUserPopPubkey is required (64-char hex Ed25519 public key derived from new user\'s userSecretKey)',
+      });
+    }
+    await client(req).registerUser(userKey, newUserPopPubkey);
+    res.json({ ok: true });
+  }
   catch (err) { handleError(err, res); }
 });
 

@@ -45,7 +45,9 @@ const { apiKey, userKey, userSecretKey } = await generateCredentials();
 
 Keep `userSecretKey` private. The first user to call `createKey()` in a new org
 becomes the admin. Additional users are added by the admin via
-`client.registerUser(userKey)`.
+`client.registerUser(userKey, newUserPopPubkey)` — the new user's PoP public
+key is derived from their `userSecretKey` (call
+`SigbashClient.derivePopPublicKey(userSecretKey)`).
 
 > **Signet only by default.** All keys are created on Bitcoin signet. To enable
 > mainnet access for your org, email [sales@sigbash.com](mailto:sales@sigbash.com)

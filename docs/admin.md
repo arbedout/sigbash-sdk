@@ -37,12 +37,24 @@ Admins can pre-register users so they are authorized to create keys within the
 org before they make their first request.
 
 ```typescript
-// Grant access to a new user
-await adminClient.registerUser('alice');
+// Generate the new user's credentials locally (admin can do this on their
+// behalf, or the new user can do it themselves and share only the pubkey).
+const newUserSecretKey = SigbashClient.generateUserSecretKey();
+const { publicKeyHex } = await SigbashClient.derivePopPublicKey(newUserSecretKey);
+
+// Grant access — every user row carries its own PoP pubkey, so the admin
+// must supply the new user's pubkey (not their own).
+await adminClient.registerUser('alice', publicKeyHex);
 
 // Remove access from an existing user
 await adminClient.revokeUser('bob');  // throws AdminError if the caller is not admin
 ```
+
+The admin then shares `newUserSecretKey` with the new user out-of-band (or, in
+the second flow, the new user generates their own `userSecretKey` and gives the
+admin only the derived `publicKeyHex`). The new user's `userSecretKey` is what
+they will use to construct their own `SigbashClient` — the admin's
+`userSecretKey` cannot stand in for it.
 
 An admin cannot revoke their own access — the server rejects self-revocation.
 

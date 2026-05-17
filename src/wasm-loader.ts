@@ -380,6 +380,12 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
 
   // Store the WASM URL on globalThis so workers can locate the binary.
   (globalThis as Record<string, unknown>)['_sigbashWasmUrl'] = wasmUrl;
+  // Also stash the verified SHA-384 hash so each spawned worker can
+  // re-verify the WASM bytes it fetches before instantiation, rather than
+  // trusting whatever the origin/CDN happens to serve at worker-spawn time.
+  // Empty string when verification was skipped (development only — workers
+  // will skip verification in that case too).
+  (globalThis as Record<string, unknown>)['_sigbashWasmHash'] = resolvedHash || '';
 
   // Warm up the WebCrypto / OpenSSL thread pool. Node.js lazily initializes
   // libuv worker threads on the first crypto.subtle.digest call. Without this,

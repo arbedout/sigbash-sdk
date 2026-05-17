@@ -1159,6 +1159,7 @@ describe('registerUser and revokeUser — live server', () => {
   let adminClient: SigbashClient;
   let nonAdminClient: SigbashClient;
   const newUserKey = SigbashClient.generateUserKey();
+  const newUserSecretKey = SigbashClient.generateUserSecretKey();
   let registeredUserClient: SigbashClient;
 
   beforeAll(() => {
@@ -1185,22 +1186,27 @@ describe('registerUser and revokeUser — live server', () => {
     registeredUserClient?.disconnect();
   });
 
-  it('scenario 50: admin registerUser(newUserKey) → resolves without error', async () => {
+  it('scenario 50: admin registerUser(newUserKey, popPubkey) → resolves without error', async () => {
     if (!liveServerAvailable) return;
-    await expect(adminClient.registerUser(newUserKey)).resolves.toBeUndefined();
+    const { publicKeyHex } = await SigbashClient.derivePopPublicKey(newUserSecretKey);
+    await expect(adminClient.registerUser(newUserKey, publicKeyHex)).resolves.toBeUndefined();
   });
 
   it('scenario 51: non-admin calling registerUser → rejects with AdminError', async () => {
     if (!liveServerAvailable) return;
     const anotherKey = SigbashClient.generateUserKey();
-    await expect(nonAdminClient.registerUser(anotherKey)).rejects.toThrow(AdminError);
+    const anotherSecret = SigbashClient.generateUserSecretKey();
+    const { publicKeyHex } = await SigbashClient.derivePopPublicKey(anotherSecret);
+    await expect(nonAdminClient.registerUser(anotherKey, publicKeyHex)).rejects.toThrow(AdminError);
   });
 
   it('scenario 52: admin revokeUser(registeredUserKey) → resolves without error', async () => {
     if (!liveServerAvailable) return;
     // Register a fresh user to revoke
     const revokeTargetKey = SigbashClient.generateUserKey();
-    await adminClient.registerUser(revokeTargetKey);
+    const revokeTargetSecret = SigbashClient.generateUserSecretKey();
+    const { publicKeyHex } = await SigbashClient.derivePopPublicKey(revokeTargetSecret);
+    await adminClient.registerUser(revokeTargetKey, publicKeyHex);
     await expect(adminClient.revokeUser(revokeTargetKey)).resolves.toBeUndefined();
   });
 
@@ -1215,7 +1221,7 @@ describe('registerUser and revokeUser — live server', () => {
     registeredUserClient = new SigbashClient({
       apiKey: API_KEY,
       userKey: newUserKey,
-      userSecretKey: SigbashClient.generateUserSecretKey(),
+      userSecretKey: newUserSecretKey,
       serverUrl: SERVER_URL!,
     });
     const result = await registeredUserClient.createKey({

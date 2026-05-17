@@ -358,7 +358,7 @@ const pending = [];
 self.onmessage = function(e) {
   const msg = e.data;
   if (msg.type === 'init') {
-    initWasm(msg.wasmExecUrl, msg.wasmUrl).then(function() {
+    initWasm(msg.wasmExecUrl, msg.wasmUrl, msg.expectedHash).then(function() {
       wasmReady = true;
       self.postMessage({ type: 'ready' });
       // Drain any queued tasks.
@@ -392,11 +392,40 @@ self.onmessage = function(e) {
   }
 };
 
-async function initWasm(wasmExecUrl, wasmUrl) {
+async function initWasm(wasmExecUrl, wasmUrl, expectedHash) {
   importScripts(wasmExecUrl);
   var go = new Go();
   var response = await fetch(wasmUrl);
-  var result = await WebAssembly.instantiateStreaming(response, go.importObject);
+  if (!response.ok) {
+    throw new Error('worker WASM fetch failed: ' + response.status);
+  }
+  var wasmBuffer = await response.arrayBuffer();
+  // Mandatory integrity verification when an expected hash was supplied by
+  // the main thread. Without this, a compromised CDN/origin could serve
+  // unverified bytes to workers after the main-thread verification has
+  // already passed. SHA-384 matches the algorithm used by the main loader.
+  if (expectedHash) {
+    var digest = await crypto.subtle.digest('SHA-384', wasmBuffer);
+    var actual = '';
+    var view = new Uint8Array(digest);
+    for (var i = 0; i < view.length; i++) {
+      var h = view[i].toString(16);
+      actual += h.length === 1 ? '0' + h : h;
+    }
+    var expected = expectedHash.toLowerCase();
+    // Constant-time compare.
+    if (actual.length !== expected.length) {
+      throw new Error('worker WASM integrity check failed');
+    }
+    var diff = 0;
+    for (var j = 0; j < actual.length; j++) {
+      diff |= actual.charCodeAt(j) ^ expected.charCodeAt(j);
+    }
+    if (diff !== 0) {
+      throw new Error('worker WASM integrity check failed');
+    }
+  }
+  var result = await WebAssembly.instantiate(wasmBuffer, go.importObject);
   go.run(result.instance);
   // Warm up WebCrypto thread pool before first prove.
   if (typeof crypto !== "undefined" && crypto.subtle) {
@@ -494,8 +523,9 @@ async function handleWitnessAndProve(msg) {
         const g = globalThis as Record<string, unknown>;
         const wasmExecUrl = (g['_sigbashWasmExecUrl'] as string) || '/wasm_exec.js';
         const wasmUrl = (g['_sigbashWasmUrl'] as string) || '/sigbash.wasm';
+        const expectedHash = (g['_sigbashWasmHash'] as string) || '';
 
-        worker.postMessage({ type: 'init', wasmExecUrl, wasmUrl });
+        worker.postMessage({ type: 'init', wasmExecUrl, wasmUrl, expectedHash });
 
         // Timeout for init — 30s is generous for WASM download + compile.
         setTimeout(() => {
@@ -566,9 +596,26 @@ parentPort.on("message", function(msg) {
     const wasmPath = workerData.wasmPath;
     if (wasmPath.startsWith("http://") || wasmPath.startsWith("https://")) {
       const resp = await fetch(wasmPath);
+      if (!resp.ok) {
+        throw new Error("worker WASM fetch failed: " + resp.status);
+      }
       wasmBuffer = await resp.arrayBuffer();
     } else {
       wasmBuffer = fs.readFileSync(path.resolve(wasmPath)).buffer;
+    }
+
+    // Mandatory integrity verification when the main thread supplied a hash.
+    // Without this, a compromised origin could serve unverified bytes to the
+    // worker after the main-thread verification has already passed.
+    const expectedHash = workerData.expectedHash;
+    if (expectedHash) {
+      const nodeCrypto = require("crypto");
+      const actual = nodeCrypto.createHash("sha384").update(Buffer.from(wasmBuffer)).digest("hex");
+      const expected = String(expectedHash).toLowerCase();
+      if (actual.length !== expected.length ||
+          !nodeCrypto.timingSafeEqual(Buffer.from(actual, "utf8"), Buffer.from(expected, "utf8"))) {
+        throw new Error("worker WASM integrity check failed");
+      }
     }
 
     const result = await WebAssembly.instantiate(wasmBuffer, go.importObject);
@@ -661,11 +708,12 @@ async function handleWitnessAndProve(msg) {
       }
 
       const sigbashBaseUrl = (g['sigbashBaseUrl'] as string) || '';
+      const expectedHash = (g['_sigbashWasmHash'] as string) || '';
 
       return new Promise<WorkerWrapper | null>((resolve) => {
         const worker = new NodeWorker(workerCode, {
           eval: true,
-          workerData: { wasmExecPath, wasmPath, sigbashBaseUrl },
+          workerData: { wasmExecPath, wasmPath, sigbashBaseUrl, expectedHash },
         });
 
         let settled = false;

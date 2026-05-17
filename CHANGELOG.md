@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-17
+
+### Breaking
+
+- **`registerUser(userKey, newUserPopPubkey)`** — the new user's PoP public
+  key is now a required second argument. Derive it with the new
+  `SigbashClient.derivePopPublicKey(userSecretKey)` helper. The HTTP server's
+  `POST /admin/users` likewise requires `newUserPopPubkey` in the body.
+
+### Added
+
+- `SigbashClient.derivePopPublicKey(userSecretKey)` — returns the Ed25519 PoP
+  public key for use with `registerUser()`.
+
+### Security
+
+- Hardened server-side authorization on the signing path so non-2FA keys
+  cannot bypass policy-update cooldowns or network revocation.
+- Prove workers now verify WASM integrity against the main thread's
+  expected hash before instantiation.
+- `registerUser()` no longer registers the admin's PoP key for new users
+  (see Breaking).
+- Rejected negative `key_index` values during key registration.
+
 ## [0.5.0] — 2026-05-17
 
 ### Added

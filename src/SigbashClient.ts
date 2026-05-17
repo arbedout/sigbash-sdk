@@ -405,6 +405,16 @@ export class SigbashClient {
     return SigbashClient.generateUserKey();
   }
 
+  /**
+   * Derive the Ed25519 PoP public key from a userSecretKey. Returns the
+   * 64-char lowercase hex pubkey that must be passed to `registerUser()`
+   * when an admin pre-registers a new user.
+   */
+  static async derivePopPublicKey(userSecretKey: string): Promise<{ publicKeyHex: string }> {
+    const popKey = await derivePopKey(userSecretKey);
+    return { publicKeyHex: popKey.publicKeyHex };
+  }
+
   // -------------------------------------------------------------------------
   // Admin methods
   // -------------------------------------------------------------------------
@@ -415,21 +425,32 @@ export class SigbashClient {
    * Only an admin can call this. The server auto-promotes the first user in an
    * org to admin; subsequent users must be explicitly registered by an existing admin.
    *
+   * The new user's PoP public key must be supplied by the caller — every user
+   * row carries its own PoP pubkey, and the admin's pubkey cannot stand in
+   * (the new user could not then authenticate, and the admin could impersonate
+   * the row). Two common ways to obtain it:
+   *
+   *   1. Admin generates the new user's secret and derives the pubkey:
+   *        const newUserSecretKey = SigbashClient.generateUserSecretKey();
+   *        const { publicKeyHex } = await SigbashClient.derivePopPublicKey(newUserSecretKey);
+   *        await admin.registerUser(userKey, publicKeyHex);
+   *
+   *   2. The new user generates their own secret locally and shares only
+   *      the derived pubkey with the admin out-of-band.
+   *
+   * @param userKey            the new user's userKey (combined with admin's apiKey to derive auth hash)
+   * @param newUserPopPubkey   64-char lowercase hex Ed25519 public key derived from the new user's userSecretKey
    * @throws AdminError if the caller is not an admin
    */
-  async registerUser(userKey: string): Promise<void> {
+  async registerUser(userKey: string, newUserPopPubkey: string): Promise<void> {
+    if (typeof newUserPopPubkey !== 'string' || !/^[0-9a-f]{64}$/.test(newUserPopPubkey)) {
+      throw new SigbashSDKError(
+        'newUserPopPubkey must be a 64-character lowercase hex Ed25519 public key. ' +
+        'Derive it from the new user\'s userSecretKey via SigbashClient.derivePopPublicKey().',
+        'INVALID_ARGUMENT'
+      );
+    }
     const newUserAuthHash = await doubleSha256(this._apiKey, userKey);
-    // T125: every new user row must carry a PoP pubkey. We derive the new
-    // user's pubkey deterministically from their (not yet known) secret —
-    // however, the new user supplies userSecretKey themselves; admins do not
-    // know it. Admins therefore register users by passing the new user's
-    // PoP pubkey, which the new user shares out-of-band. For the common case
-    // where the admin generates the credentials for the new user, they should
-    // call `derivePopKey(newUserSecretKey).publicKeyHex` and supply it via
-    // the lower-level `registerUserWithPubkey(...)` API. The simple
-    // `registerUser(userKey)` path is only safe when the admin is the new
-    // user themselves (same userSecretKey), so we use that key.
-    const popKey = await this._popKey;
 
     const response = await this._authedFetch(
       '/api/v2/sdk/admin/users',
@@ -438,7 +459,7 @@ export class SigbashClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           new_user_auth_hash: newUserAuthHash,
-          new_user_pop_pubkey: popKey.publicKeyHex,
+          new_user_pop_pubkey: newUserPopPubkey,
         }),
       }
     );
