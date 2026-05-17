@@ -71,7 +71,7 @@ The returned `SdkRecoveryKit` object looks like:
 
 `apiKey` and `userKey` are always present in kits exported by this SDK version; the type marks them optional only for forward/backward compatibility with older kits. Treat them as required when parsing a kit produced here. Their inclusion makes the kit **fully self-contained**: recovering from it does not require a separately stored `.env` file.
 
-`popSeed` is the 32-byte Ed25519 PoP private seed (T125). The server requires every authenticated request to be signed by the registered `pop_pubkey`; bundling the seed in the kit means a recovering client running with a wrong/garbage `userSecretKey` can still pass the per-request signature check. **Treat `popSeed` with the same care as `recoveryKEK`** — it grants the ability to act as this user on the server. Kits exported before T125 lack this field and cannot be recovered against a T125-enabled server; re-export the kit before relying on it.
+`popSeed` is the 32-byte Ed25519 PoP private seed. The server requires every authenticated request to be signed by the registered `pop_pubkey`; bundling the seed in the kit means a recovering client running with a wrong/garbage `userSecretKey` can still pass the per-request signature check. **Treat `popSeed` with the same care as `recoveryKEK`** — it grants the ability to act as this user on the server. 
 
 ### Security warning
 
