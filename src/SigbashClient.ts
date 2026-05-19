@@ -1674,21 +1674,20 @@ export class SigbashClient {
    * _sigbash_sig } — the server's connect handler validates the signature
    * before accepting the connection.
    */
-  private async _buildHandshakeAuth(namespace: string): Promise<{
-    auth_hash: string;
-    apikey_hash: string;
-    pop_pubkey: string;
-    _sigbash_sig: string;
-  }> {
+  private async _buildHandshakeAuth(
+    namespace: string,
+    extra?: Record<string, unknown>,
+  ): Promise<Record<string, unknown> & { _sigbash_sig: string }> {
     const [authHash, apikeyHash, popKey] = await Promise.all([
       this._authHash,
       this._apikeyHash,
       this._popKey,
     ]);
-    const basePayload = {
+    const basePayload: Record<string, unknown> = {
       auth_hash: authHash,
       apikey_hash: apikeyHash,
       pop_pubkey: popKey.publicKeyHex,
+      ...(extra ?? {}),
     };
     const sig = await signSocketPayload(namespace, '', basePayload, authHash, popKey);
     return { ...basePayload, _sigbash_sig: sig.value };
@@ -1706,15 +1705,12 @@ export class SigbashClient {
             | undefined
         ) => void
       ): void => {
-        this._buildHandshakeAuth('/api/v2/sdk')
-          .then(payload => {
-            if (!privateLogsSent) {
-              privateLogsSent = true;
-              cb({ ...payload, private_logs: this.privateLogs });
-            } else {
-              cb(payload);
-            }
-          })
+        const extra = privateLogsSent
+          ? undefined
+          : { private_logs: this.privateLogs };
+        privateLogsSent = true;
+        this._buildHandshakeAuth('/api/v2/sdk', extra)
+          .then(payload => cb(payload as { auth_hash?: string; apikey_hash?: string; pop_pubkey?: string; _sigbash_sig?: string; private_logs?: boolean }))
           .catch(() => cb(undefined));
       };
       this._socket = new SigbashSocket(this._serverUrl, '/api/v2/sdk', authProvider);
@@ -1825,7 +1821,7 @@ export class SigbashClient {
         ) => void
       ): void => {
         this._buildHandshakeAuth('/api/v2/musig2')
-          .then(payload => cb(payload))
+          .then(payload => cb(payload as { auth_hash?: string; apikey_hash?: string; pop_pubkey?: string; _sigbash_sig?: string }))
           .catch(() => cb(undefined));
       };
       this._musig2Socket = new SigbashSocket(
