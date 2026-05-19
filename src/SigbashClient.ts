@@ -28,6 +28,8 @@ import type {
   POETPolicy,
   SdkRecoveryKit,
   UpdatePolicyOptions,
+  AuditLogEntry,
+  AuditLogsOptions,
 } from './types';
 
 import {
@@ -56,6 +58,11 @@ import {
   parseEncKek2,
 } from './crypto';
 import type { KMCEnvelope, WrappedKey } from './crypto';
+import {
+  deriveAdminAuditDek,
+  encryptAuditEntry,
+  decryptAuditEntry,
+} from './audit-log';
 import { buildPolicyFromTemplate } from './templates';
 import { SigbashSocket } from './socket';
 import { getProveWorkerManager } from './prove-worker-manager';
@@ -314,6 +321,27 @@ export class SigbashClient {
   #keyHash: string = '';
   #disposed = false;
 
+  /**
+   * Whether audit log entries should be encrypted WASM-side (true) or
+   * with the admin-derivable DEK (false). Defaults to true.
+   * Honored only at first admin connect; immutable afterwards.
+   */
+  private privateLogs: boolean = true;
+
+  /**
+   * Whether the server granted audit log access to this connection.
+   * Determines whether getAuditLogs() is available.
+   */
+  private auditLogAccess: boolean = false;
+
+  /**
+   * Returns whether audit log access has been granted by the server.
+   * Check this before calling getAuditLogs().
+   */
+  get hasAuditLogAccess(): boolean {
+    return this.auditLogAccess;
+  }
+
   constructor(options: SigbashClientOptions) {
     if (!options.apiKey) throw new MissingOptionError('apiKey');
     if (!options.userKey) throw new MissingOptionError('userKey');
@@ -334,6 +362,11 @@ export class SigbashClient {
     this._authHash = doubleSha256(this._apiKey, this._userKey);
     this._apikeyHash = doubleSha256(this._apiKey, this._apiKey);
     this._popKey = derivePopKey(this._userSecretKey);
+
+    // Capture audit log preference (honored only on first admin connect)
+    if (options.privateLogs !== undefined) {
+      this.privateLogs = options.privateLogs;
+    }
 
     // BYO key path: validate immediately via WASM and pre-compute commitments
     const raw = options.musig2PrivateKey;
@@ -1326,9 +1359,38 @@ export class SigbashClient {
       return { success: false, error: result.error ?? 'Policy not satisfied' };
     }
 
+    const txHex = result.signed_tx_hex ?? '';
+    // Compute a best-effort txid from the txHex (SHA256 of the transaction bytes)
+    let txid = '';
+    if (txHex) {
+      try {
+        const txBytes = Uint8Array.from(txHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+        const hashBuffer = await crypto.subtle.digest('SHA-256', txBytes);
+        txid = Array.from(new Uint8Array(hashBuffer))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      } catch {
+        // Best-effort — txid derivation failure is non-fatal
+      }
+    }
+
+    // Fire-and-forget audit log entry for successful signing.
+    // Best-effort: errors are swallowed so they never disrupt the caller.
+    const keyIdNum = parseInt(options.keyId, 10);
+    if (!isNaN(keyIdNum) && txHex) {
+      const auditEntry: AuditLogEntry = {
+        txid,
+        network: options.network ?? 'signet',
+        status: 'signed',
+        timestamp: Math.floor(Date.now() / 1000),
+        type: 'psbt_signed',
+      };
+      this.storeAuditLogEntry(keyIdNum, auditEntry).catch(() => { /* noop */ });
+    }
+
     return {
       success: true,
-      txHex: result.signed_tx_hex,
+      txHex,
       signedPSBT: result.signed_psbt_base64,
       pathId: result.path_id,
       satisfiedClause: result.satisfied_clause,
@@ -1634,19 +1696,37 @@ export class SigbashClient {
 
   private _requireSocket(): SigbashSocket {
     if (this._socket === null) {
+      // Flag to ensure private_logs is sent only on the first connection
+      let privateLogsSent = false;
+
       const authProvider = (
         cb: (
           payload:
-            | { auth_hash?: string; apikey_hash?: string; pop_pubkey?: string; _sigbash_sig?: string }
+            | { auth_hash?: string; apikey_hash?: string; pop_pubkey?: string; _sigbash_sig?: string; private_logs?: boolean }
             | undefined
         ) => void
       ): void => {
         this._buildHandshakeAuth('/api/v2/sdk')
-          .then(payload => cb(payload))
+          .then(payload => {
+            if (!privateLogsSent) {
+              privateLogsSent = true;
+              cb({ ...payload, private_logs: this.privateLogs });
+            } else {
+              cb(payload);
+            }
+          })
           .catch(() => cb(undefined));
       };
       this._socket = new SigbashSocket(this._serverUrl, '/api/v2/sdk', authProvider);
       this._wrapSocketEmitForPoP(this._socket, '/api/v2/sdk');
+
+      // Listen for the connect acknowledgment from the server, which carries
+      // the audit log configuration flags.
+      this._socket.rawSocket.on('sdk_connect_ack', (payload: unknown) => {
+        const ack = (payload ?? {}) as Record<string, unknown>;
+        this.privateLogs = (ack['private_logs'] as boolean) ?? true;
+        this.auditLogAccess = (ack['audit_log_access'] as boolean) ?? false;
+      });
     }
     return this._socket;
   }
@@ -1841,6 +1921,59 @@ export class SigbashClient {
     }
 
     (globalThis as Record<string, unknown>)['sigbashPreFetchedCovenantState'] = decryptedMap;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Audit log helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Encrypt and store an audit log entry for the given signing key.
+   *
+   * When `privateLogs` is true (default), encryption is delegated to the WASM
+   * binary (`SigbashWASM_EncryptTransactionHistoryEntry`) and the admin cannot
+   * decrypt the result directly. When false, the admin may derive the audit
+   * DEK from apiKey + userKey to decrypt locally.
+   *
+   * The encrypted blob is emitted to the server via `sdk_store_encrypted_log`.
+   *
+   * @param keyId - The signing key ID
+   * @param entry - The audit log entry to store
+   */
+  private async storeAuditLogEntry(keyId: number, entry: AuditLogEntry): Promise<void> {
+    let encryptedBlob: string;
+
+    if (this.privateLogs) {
+      // WASM path — encrypt inside the binary, opaque to the admin
+      const wasmFn = (globalThis as Record<string, unknown>)[
+        'SigbashWASM_EncryptTransactionHistoryEntry'
+      ] as ((input: string) => string) | undefined;
+      if (typeof wasmFn !== 'function') {
+        // WASM not loaded — skip silently; audit log is best-effort
+        return;
+      }
+      try {
+        encryptedBlob = wasmFn(JSON.stringify(entry));
+      } catch {
+        // Best-effort — swallow encrypt failure
+        return;
+      }
+    } else {
+      // Admin-decryptable path — derive DEK and encrypt locally
+      const dek = deriveAdminAuditDek(this._apiKey, this._userKey);
+      encryptedBlob = encryptAuditEntry(entry, dek);
+    }
+
+    // Emit to the server via socket
+    try {
+      const socket = this._requireSocket();
+        await socket.request('sdk_store_encrypted_log', {
+        key_id: keyId,
+        encrypted_log: encryptedBlob,
+      });
+    } catch {
+      // Best-effort — swallow network/emit failure
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2302,6 +2435,104 @@ export class SigbashClient {
         policyData.code ?? 'SERVER_ERROR',
       );
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Audit log retrieval
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fetch and optionally decrypt audit log entries from the server.
+   *
+   * When the client was initialized with `privateLogs: true` (default), the
+   * server returns opaque encrypted blobs that the admin cannot decrypt.
+   * When `privateLogs: false`, each row is decrypted using the admin-derivable
+   * audit DEK before being returned.
+   *
+   * @param options - Optional filter parameters (limit, beforeTimestamp, credentialHash)
+   * @returns Array of AuditLogEntry objects
+   * @throws SigbashSDKError with code AUDIT_LOG_ACCESS_NOT_ENABLED if the server
+   *         has not granted audit log access to this admin connection
+   */
+  async getAuditLogs(options?: AuditLogsOptions): Promise<AuditLogEntry[]> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+
+    // Build query params
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.beforeTimestamp !== undefined) params.set('before_timestamp', String(options.beforeTimestamp));
+    if (options?.credentialHash !== undefined) params.set('credential_hash', options.credentialHash);
+
+    const response = await this._authedFetch(
+      `/api/v2/sdk/admin/audit-logs?${params.toString()}`
+    );
+
+    const data = (await response.json()) as {
+      success?: boolean;
+      code?: string;
+      message?: string;
+      logs?: unknown[];
+      private_logs?: boolean;
+    };
+
+    if (!response.ok || data.success !== true) {
+      const code = data.code ?? '';
+      if (code === 'AUDIT_LOG_ACCESS_NOT_ENABLED') {
+        throw new SigbashSDKError(
+          data.message ?? 'Audit log access is not enabled for this admin connection',
+          'AUDIT_LOG_ACCESS_NOT_ENABLED'
+        );
+      }
+      throw new SigbashSDKError(
+        data.message ?? `getAuditLogs failed (HTTP ${response.status})`,
+        code || 'SERVER_ERROR'
+      );
+    }
+
+    const rawLogs = (data.logs ?? []) as unknown[];
+
+    // When private_logs is true, the admin cannot decrypt — return raw opaque entries
+    if (data.private_logs === true) {
+      return rawLogs as AuditLogEntry[];
+    }
+
+    // Otherwise, decrypt each row
+    const dek = deriveAdminAuditDek(this._apiKey, this._userKey);
+    const results: AuditLogEntry[] = [];
+
+    for (const row of rawLogs) {
+      const r = row as Record<string, unknown>;
+      const encryptedData = r['encrypted_data'];
+      if (typeof encryptedData === 'string') {
+        try {
+          const decrypted = decryptAuditEntry(encryptedData, dek);
+          results.push({
+            ...decrypted,
+            key_id: r['key_id'] as number | undefined,
+            created_at: r['created_at'] as number | undefined,
+            server_seq: r['server_seq'] as number | undefined,
+            chain_mac: r['chain_mac'] as string | undefined,
+          });
+        } catch {
+          // Undecryptable row — return as opaque placeholder
+          results.push({
+            network: 'signet',
+            status: 'opaque',
+            timestamp: (r['created_at'] as number) ?? 0,
+            key_id: r['key_id'] as number | undefined,
+            server_seq: r['server_seq'] as number | undefined,
+            chain_mac: r['chain_mac'] as string | undefined,
+          });
+        }
+      } else {
+        // Row has no encrypted_data — use as-is
+        results.push(row as AuditLogEntry);
+      }
+    }
+
+    return results;
   }
 
 }

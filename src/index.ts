@@ -95,6 +95,9 @@ export type {
   NullifierCheckResult,
   VerifyPSBTOptions,
   VerifyPSBTResult,
+  // Audit log types
+  AuditLogEntry,
+  AuditLogsOptions,
 } from './types';
 
 /** @deprecated Use string codes on {@link SigbashSDKError} subclasses instead. */
@@ -132,4 +135,13 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.6.0';
+export const SDK_VERSION = '0.6.1';
+
+// Audit log
+export {
+  AUDIT_LOG_KEY_LABEL,
+  deriveAdminAuditDek,
+  encryptAuditEntry,
+  decryptAuditEntry,
+  verifyReceiptChain,
+} from './audit-log';

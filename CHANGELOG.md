@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-05-19
+
+### Added
+
+- **Audit logging.** Tamper-resistant append chain MAC for encrypted
+  transaction history. New `client.getAuditLogs()` method, `privateLogs`/
+  `auditLogAccess` flags on connect, auto-logging after every `signPSBT()`,
+  `deriveAdminAuditDek()` / `encryptAuditEntry()` / `decryptAuditEntry()` /
+  `verifyReceiptChain()` in `audit-log.ts`. Admin-decryptable entries when
+  `privateLogs: false`.
+
 ## [0.6.0] — 2026-05-17
 
 ### Breaking

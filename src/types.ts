@@ -132,6 +132,15 @@ export interface SigbashClientOptions {
    * When supplied as string: immediately copied to Uint8Array, string reference discarded.
    */
   musig2PrivateKey?: string | Uint8Array;
+
+  /**
+   * When true (default), audit log entries are encrypted by the WASM binary
+   * and the admin cannot decrypt them directly. When false, the admin may
+   * derive the audit DEK from apiKey + userKey to decrypt log entries locally.
+   *
+   * Honored only at first admin connect; immutable afterwards.
+   */
+  privateLogs?: boolean;
 }
 
 /**
@@ -525,4 +534,57 @@ export interface SdkRecoveryKit {
    * upgrade — re-export the kit using a current SDK build.
    */
   popSeed?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Audit log types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single audit log entry recording a signing operation.
+ *
+ * Fields mirror the encrypted blob stored on the server; some are
+ * server-populated (key_id, created_at, server_seq, chain_mac).
+ */
+export interface AuditLogEntry {
+  /** Optional transaction ID (hex). */
+  txid?: string;
+  /** Optional PSBT identifier. */
+  psbtId?: string;
+  /** Optional amount in satoshis. */
+  amountSats?: number;
+  /** Optional recipient address. */
+  recipient?: string;
+  /** Bitcoin network. */
+  network: string;
+  /** Entry status (e.g. 'signed', 'failed', 'pending'). */
+  status: string;
+  /** Unix timestamp (seconds). */
+  timestamp: number;
+  /** Optional entry type classification. */
+  type?: string;
+  /** Optional human-readable notes. */
+  notes?: string;
+  /** Allow extra fields for forward compatibility. */
+  [k: string]: unknown;
+  /** Key ID used for the signing operation (server-populated). */
+  key_id?: number;
+  /** Server-assigned creation timestamp (Unix seconds). */
+  created_at?: number;
+  /** Monotonically increasing server sequence number. */
+  server_seq?: number;
+  /** HMAC chain MAC linking this entry to the previous one. */
+  chain_mac?: string;
+}
+
+/**
+ * Options for fetching audit logs via getAuditLogs().
+ */
+export interface AuditLogsOptions {
+  /** Maximum number of entries to return. */
+  limit?: number;
+  /** Only return entries older than this Unix timestamp (seconds). */
+  beforeTimestamp?: number;
+  /** Filter by specific credential hash. */
+  credentialHash?: string;
 }

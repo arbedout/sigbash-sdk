@@ -21,6 +21,14 @@ export interface GenerateCredentialsOptions {
   envPath?: string;
   /** Overwrite an existing .env file. Defaults to false. */
   force?: boolean;
+  /**
+   * When true (default), audit log entries are encrypted by the WASM binary
+   * so the admin cannot decrypt them directly. When false, the admin may
+   * derive the audit DEK locally.
+   *
+   * Honored only at first admin connect; immutable afterwards.
+   */
+  privateLogs?: boolean;
 }
 
 export interface GeneratedCredentials {
