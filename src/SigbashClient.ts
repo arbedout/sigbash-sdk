@@ -298,7 +298,6 @@ export class SigbashClient {
    * Promise resolving to the Ed25519 PoP keypair derived from `userSecretKey`.
    * Each authenticated request and Socket.IO event is signed with this key
    * so that an exfiltrated `authHash` is not sufficient to authenticate.
-   * See T125 / docs/authentication.md.
    *
    * Not `readonly` — `recoverFromKit()` rebinds this to the kit-embedded
    * popSeed for the duration of the recovery call so that a client with the
@@ -521,8 +520,7 @@ export class SigbashClient {
   /**
    * Admin-only: enable or disable admin-initiated key recovery for this org.
    *
-   * Wraps PATCH /api/v2/sdk/admin/settings with the PoP request signature
-   * required by T125.
+   * Wraps PATCH /api/v2/sdk/admin/settings with the PoP request signature.
    *
    * @returns The server's updated `allow_admin_recovery` value.
    * @throws AdminError if the caller is not an admin.
@@ -1198,7 +1196,7 @@ export class SigbashClient {
       }
       // WASM-issued HTTP calls: attach X-Sigbash-Auth so Flask can forward
       // credential_id to Moon for ProofSessionToken tracking (Wagner k=1),
-      // AND attach X-Sigbash-Sig (T125 PoP) so the server's
+      // AND attach X-Sigbash-Sig so the server's
       // @require_pop_signature gate accepts the call.
       const existingHeaders = (init?.headers ?? {}) as Record<string, string>;
       const method = ((init?.method ?? 'GET') as string).toUpperCase();
@@ -1384,6 +1382,8 @@ export class SigbashClient {
         status: 'signed',
         timestamp: Math.floor(Date.now() / 1000),
         type: 'psbt_signed',
+        satisfiedClause: result.satisfied_clause,
+        policyRootHex: result.policy_root_hex,
       };
       this.storeAuditLogEntry(keyIdNum, auditEntry).catch(() => { /* noop */ });
     }
@@ -2039,7 +2039,7 @@ export class SigbashClient {
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    // T125: embed the PoP seed so a recovering client (with the wrong
+    // embed the PoP seed so a recovering client (with the wrong
     // userSecretKey) can still sign requests as this user.
     const popKey = await this._popKey;
 
@@ -2099,11 +2099,9 @@ export class SigbashClient {
 
     const authHash = await this._authHash;
 
-    // T125: if the kit embeds the original popSeed, rebind this client's
+    // if the kit embeds the original popSeed, rebind this client's
     // popKey for the duration of the recovery so the server's PoP check
     // accepts requests even when our userSecretKey is wrong/garbage.
-    // Kits exported before T125 lack popSeed — those clients can only
-    // recover if they still hold the original userSecretKey.
     const originalPopKey = this._popKey;
     let usingKitPopKey = false;
     if (recoveryKit.popSeed) {
