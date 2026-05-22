@@ -1,5 +1,5 @@
 /**
- * Ed25519 Proof-of-Possession (PoP) request signing — T125.
+ * Ed25519 Proof-of-Possession (PoP) request signing 
  *
  * Every authenticated REST request carries an X-Sigbash-Sig header; every
  * authenticated Socket.IO event carries an `_sigbash_sig` payload field. An

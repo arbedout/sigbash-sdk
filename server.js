@@ -63,7 +63,7 @@ function requireCredentials(req, res, next) {
 }
 
 // ── Client factory ─────────────────────────────────────────────────────────
-// PoP request signing (T125) is handled transparently inside SigbashClient —
+// PoP request signing is handled transparently inside SigbashClient —
 // it derives the Ed25519 PoP key from userSecretKey at construction and signs
 // every REST request / Socket.IO event. No passthrough required here.
 function client(req) {

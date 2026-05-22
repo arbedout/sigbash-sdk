@@ -88,6 +88,8 @@ credentials per request via `X-Sigbash-*` headers.
 
 `SIGBASH_SERVER_URL` / `X-Sigbash-Server-Url` defaults to `https://www.sigbash.com` if not provided.
 
+> **Header layers.** The `X-Sigbash-*` headers above are *credential-supply* headers — they tell the local server which credentials to use for this request. They are distinct from the *upstream auth headers* (`X-Auth-Hash`, `X-Sigbash-Sig`) that the server sends to `sigbash.com` on your behalf. You never construct or pass those upstream headers yourself; the SDK builds them automatically.
+
 Only `/health` and `/setup/credentials` are accessible without credentials.
 All other endpoints return `401` if credentials cannot be resolved.
 
@@ -104,6 +106,10 @@ mandatory** for every authenticated route — an `apiKey`/`userKey` pair alone
 is not enough. The first call made by a fresh credential triplet registers
 the derived PoP public key with the server; subsequent calls must come from
 the same triplet (or use a recovery kit that embeds the original `popSeed`).
+
+Callers of the local HTTP server do not need to construct or attach any
+signature headers — supplying all three credentials (via `.env`, env vars, or
+`X-Sigbash-*` headers) is the only auth requirement on your side.
 
 ---
 
