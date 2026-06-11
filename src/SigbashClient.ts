@@ -1114,7 +1114,8 @@ export class SigbashClient {
       _inputIndex: number,
       network: string,
       progressCallback: ((step: string, message: string) => void) | null,
-      seedHex: string
+      seedHex: string,
+      arkIntentContextJSON?: string
     ) => Promise<WasmSignResult>) | undefined;
 
     if (typeof wasmFn !== 'function') {
