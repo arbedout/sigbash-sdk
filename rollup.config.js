@@ -1,4 +1,4 @@
-import typescript from 'rollup-plugin-typescript2';
+import typescript from '@rollup/plugin-typescript';
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 
@@ -24,12 +24,14 @@ export default {
     commonjs(),
     typescript({
       tsconfig: './tsconfig.json',
-      useTsconfigDeclarationDir: false
+      declaration: true,
+      declarationDir: './dist',
+      outDir: './dist',
     })
   ],
   // socket.io-client is a heavy runtime dependency; leave it to the consumer to provide.
   // @noble/* ship as ESM with TypeScript sources alongside index.js; mark them external
-  // so rpt2 doesn't try to re-compile their .ts files (which trip strict mode against
+  // so the TS plugin doesn't re-compile their .ts files (which trip strict mode against
   // ArrayBufferLike). Consumers resolve them via their own node_modules.
   external: [
     'socket.io-client',

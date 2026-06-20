@@ -1115,7 +1115,7 @@ export class SigbashClient {
       network: string,
       progressCallback: ((step: string, message: string) => void) | null,
       seedHex: string,
-      arkIntentContextJSON?: string
+      arkLabsIntentContextJSON?: string
     ) => Promise<WasmSignResult>) | undefined;
 
     if (typeof wasmFn !== 'function') {
@@ -1307,18 +1307,18 @@ export class SigbashClient {
       }
     }
 
-    const arkCtxJSON = options.arkIntentContext
+    const arkLabsCtxJSON = options.arkLabsIntentContext
       ? JSON.stringify({
-          register_message_json: options.arkIntentContext.registerMessageJson,
-          vtxo_taproot_trees: options.arkIntentContext.vtxoTaprootTrees,
+          register_message_json: options.arkLabsIntentContext.registerMessageJson,
+          vtxo_taproot_trees: options.arkLabsIntentContext.vtxoTaprootTrees,
         })
       : undefined;
 
     let result: WasmSignResult;
     try {
       // arg[2] is read but ignored by SignPSBTBlind_WASM (signs all inputs); placeholder for the WASM ABI
-      // arg[6] is the optional ArkIntentContext JSON for MATCH_ARK_INTENT evaluation
-      result = await wasmFn(psbtBase64, options.kmcJSON, 0, network, progressCallback, seedHex, arkCtxJSON);
+      // arg[6] is the optional Ark Labs intent context JSON for MATCH_ARK_INTENT evaluation
+      result = await wasmFn(psbtBase64, options.kmcJSON, 0, network, progressCallback, seedHex, arkLabsCtxJSON);
     } catch (err) {
       // wasmErrorResult() returns a Go map {error: "msg"} which becomes a JS object.
       // String(obj) gives "[object Object]", so extract the .error property directly.

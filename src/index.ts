@@ -137,6 +137,17 @@ export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata'
 // SDK version
 export const SDK_VERSION = '0.6.1';
 
+// Ark Labs integration — @arkade-os/ts-sdk Identity bridge
+export {
+  SigbashArkLabsIdentity,
+  SigbashArkLabsSigningError,
+} from './SigbashArkLabsIdentity';
+export type {
+  ArkLabsContext,
+  ArkLabsTransaction,
+  ArkLabsSignerSession,
+} from './SigbashArkLabsIdentity';
+
 // Audit log
 export {
   AUDIT_LOG_KEY_LABEL,
