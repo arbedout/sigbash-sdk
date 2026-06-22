@@ -378,6 +378,15 @@ export interface SignPSBTOptions {
     registerMessageJson: string;
     vtxoTaprootTrees: string[][];
   };
+  /**
+   * When true, the WASM will populate `FinalScriptWitness` on all signed
+   * inputs so the returned `signedPSBT` satisfies BIP-174 completeness and
+   * can be passed to `psbt.Extract()` (e.g. by arkd).
+   *
+   * Leave unset (default false) for co-signing flows where other parties still
+   * need to contribute signatures.
+   */
+  finalizePsbt?: boolean;
 }
 
 /**

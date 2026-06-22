@@ -1115,7 +1115,8 @@ export class SigbashClient {
       network: string,
       progressCallback: ((step: string, message: string) => void) | null,
       seedHex: string,
-      arkLabsIntentContextJSON?: string
+      arkLabsIntentContextJSON?: string,
+      finalizePsbt?: number
     ) => Promise<WasmSignResult>) | undefined;
 
     if (typeof wasmFn !== 'function') {
@@ -1318,7 +1319,8 @@ export class SigbashClient {
     try {
       // arg[2] is read but ignored by SignPSBTBlind_WASM (signs all inputs); placeholder for the WASM ABI
       // arg[6] is the optional Ark Labs intent context JSON for MATCH_ARK_INTENT evaluation
-      result = await wasmFn(psbtBase64, options.kmcJSON, 0, network, progressCallback, seedHex, arkLabsCtxJSON);
+      // arg[7] is the optional finalizePsbt flag (1 = populate FinalScriptWitness for arkd Extract)
+      result = await wasmFn(psbtBase64, options.kmcJSON, 0, network, progressCallback, seedHex, arkLabsCtxJSON, options.finalizePsbt ? 1 : 0);
     } catch (err) {
       // wasmErrorResult() returns a Go map {error: "msg"} which becomes a JS object.
       // String(obj) gives "[object Object]", so extract the .error property directly.

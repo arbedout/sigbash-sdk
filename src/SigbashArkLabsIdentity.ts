@@ -48,10 +48,40 @@ export interface ArkLabsContext {
 const ARK_TAPTREE_KEY = Buffer.from([0xde, 0x74, 0x61, 0x70, 0x74, 0x72, 0x65, 0x65]);
 
 export class SigbashArkLabsSigningError extends Error {
-  constructor(message: string) {
+  /**
+   * True when the throw represents an expected policy *outcome* (the PSBT simply
+   * does not satisfy the key's policy) rather than an infrastructure failure.
+   * Informational errors carry no multi-frame stack: they routinely surface from
+   * background flows (e.g. Ark periodic-settle renewals on a narrow
+   * CHECKPOINT/FORFEIT-clause key, which can't sign a bare register-intent), and
+   * a full stack trace there is just noise. The error is still thrown so callers
+   * (and negative tests) observe a rejection.
+   */
+  readonly informational: boolean;
+
+  constructor(message: string, informational = false) {
     super(message);
     this.name = 'SigbashArkLabsSigningError';
+    this.informational = informational;
+    if (informational) {
+      // Collapse the stack to the header line. Callers that log `err.stack`
+      // (the ts-sdk periodic-settle handler does) then emit a single clean line
+      // instead of a stack dump for a benign, expected outcome.
+      this.stack = `${this.name}: ${message}`;
+    }
   }
+}
+
+/**
+ * Recognise the messages the WASM/server returns when a PSBT legitimately does
+ * not satisfy the policy (as opposed to a crash, parse error, or network
+ * failure). These are expected outcomes, not bugs.
+ */
+function isPolicyOutcomeMessage(message: string): boolean {
+  return (
+    message.includes('Policy not satisfied') ||
+    message.includes('policy evaluation failed')
+  );
 }
 
 /**
@@ -210,20 +240,16 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
 
     try {
       // Ark intent proof PSBTs have input[0] as a BIP-322 toSpend reference with
-      // witnessUtxo.amount=0.  The ts-sdk's craftToSignTx() accidentally spreads
-      // tapLeafScript onto input[0] from the first vtxo coin, causing the WASM to
-      // produce a tapscript signature instead of the keypath signature that arkd
-      // expects for the toSpend input.  Clear tapLeafScript from input[0] when its
-      // amount is 0 so the WASM uses the keypath signing path.
+      // witnessUtxo.amount=0.  arkd treats input[0] as a tapscript input identical
+      // to the vtxo inputs (intent/proof.go FinalizeAndExtract copies input[1]'s
+      // unknowns onto input[0], appends the operator fake sig, and finalizes it via
+      // FinalizeVtxoScript).  So input[0] must KEEP its tapLeafScript and be signed
+      // along the tapscript path — leaving the owner's partial sig in
+      // TaprootScriptSpendSig for arkd to finalize.  (An earlier workaround cleared
+      // this leaf to force key-path signing; that was part of the reverted key-path
+      // approach and stripped the leaf arkd needs to finalize input[0].)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const input0 = (tx as any).getInput?.(0);
-      if (input0?.witnessUtxo?.amount === 0n && input0?.tapLeafScript?.length > 0) {
-        // Pass tapLeafScript: undefined (key present, value undefined) so mergeKeyMap
-        // removes it from the PSBT, forcing keypath signing for this input.
-        // Use _ignoreSignStatus=true to bypass sign-status field restrictions.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (tx as any).updateInput(0, { tapLeafScript: undefined }, true);
-      }
 
       // An Ark register-intent PSBT is identified by two Ark-specific conditions:
       //   1. input[0].witnessUtxo.amount === 0n  (BIP-322 toSpend fake)
@@ -263,12 +289,22 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
         kmcJSON: this.kmcJSON,
         network: this.network,
         arkLabsIntentContext,
+        // Never pre-finalize intent proofs: arkd runs its own FinalizeAndExtract
+        // (intent/proof.go), appending the operator's fake zero-sig before
+        // assembling the witness from each input's TaprootScriptSpendSig.  If the
+        // WASM populates FinalScriptWitness first, arkd's finalizer skips the input
+        // (proof.go: "already finalized") and the operator slot of the N-of-N leaf
+        // is never filled — yielding "PSBT cannot be extracted as it is incomplete".
+        // The non-intent arkTx/checkpoint/forfeit paths already pass false.
+        finalizePsbt: false,
       });
 
       if (!result.success) {
-        throw new SigbashArkLabsSigningError(
-          result.error ?? 'Sigbash refused to sign',
-        );
+        const msg = result.error ?? 'Sigbash refused to sign';
+        // A "Policy not satisfied" outcome is informational — throw without a
+        // stack trace so a background renewal that hits it logs cleanly. A
+        // genuine refusal / infra error keeps its full stack for debugging.
+        throw new SigbashArkLabsSigningError(msg, isPolicyOutcomeMessage(msg));
       }
 
       return this.txFromPSBT(Buffer.from(result.signedPSBT!, 'base64'));

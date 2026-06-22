@@ -1,8 +1,8 @@
 {
-  "latest_version": "sigbash_20260620_141433.wasm",
-  "sha384": "nbqAmwYDvPJgnEBLd6yTlddsIm0n4gOtF8LzI34LrdxKumLE2yOd8bHuLspIQKMJ",
-  "size_bytes": 11678918,
-  "git_version": "09582d41",
-  "generated": "2026-06-20T14:14:33Z",
+  "latest_version": "sigbash_20260621_131230.wasm",
+  "sha384": "nBFV1IKxk4B+nNhX3TilnZ8dd9h4tC1um5zzM1XXMIllKm0iUVu8hkVMkEHTjngn",
+  "size_bytes": 11687330,
+  "git_version": "b7d264ac",
+  "generated": "2026-06-21T13:12:30Z",
   "symlink_target": "sigbash.wasm"
 }
