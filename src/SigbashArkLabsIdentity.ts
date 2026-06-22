@@ -110,6 +110,20 @@ function isPolicyOutcomeMessage(message: string): boolean {
  * await wallet.send({ address: destination, amount: 50_000n });
  * // Context is automatically cleared after sign() returns.
  * ```
+ *
+ * Policy composition requirement: a single `wallet.send()` also signs the
+ * intermediate checkpoint tx, and a single `ramps.offboard()` also signs a
+ * forfeit-shaped settlement tx — both with the single-use ArkLabsContext already
+ * consumed by the arkTx sign. The signer no longer waves these intermediate
+ * shapes through on structure alone, so the key's policy MUST compose the
+ * dedicated infra atom alongside the intent/exit atom via OR, e.g.
+ * `OR(MATCH_ARK_INTENT{...}, MATCH_ARK_CHECKPOINT{operator_pubkey, csv_timeout, max_fee})`
+ * for sends and
+ * `OR(MATCH_ARK_COLLABORATIVE_EXIT{...}, MATCH_ARK_FORFEIT{operator_pubkey, forfeit_script_pubkey, max_fee})`
+ * for offboards. The checkpoint `csv_timeout` must equal the operator's actual
+ * unroll delay and the forfeit `forfeit_script_pubkey` the ASP forfeit script
+ * (both from arkd `getInfo()`). Omitting the infra atom makes legitimate
+ * sends/offboards fail to co-sign the intermediate tx.
  */
 export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransaction> {
   private arkLabsCtx: ArkLabsContext | null = null;
