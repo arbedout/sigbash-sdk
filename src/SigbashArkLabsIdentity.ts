@@ -130,11 +130,13 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
   /** Mutex: resolves to true when no signing is in progress; held during sign(). */
   private signingLock: Promise<void> = Promise.resolve();
   /**
-   * Non-null while a setArkLabsContext() call has set context and is waiting for
-   * the first sign() to consume it.  sign() calls this to release the hold before
-   * awaiting prevLock, preventing a deadlock between the context lock and the queue.
+   * True while setArkLabsContext() has set a context that has not yet been
+   * consumed by a foreground (non-intent) sign(). Decoupled from the signingLock
+   * mutex: intent-proof sign()s (background vtxo-renewal register-intents) do NOT
+   * clear it, so they can no longer strip the foreground ArkLabsContext. Only a
+   * consuming (non-intent) sign() — the intended arkTx — clears it.
    */
-  private _contextLockRelease: (() => void) | null = null;
+  private _contextPending = false;
   /**
    * Incremented on every sign() call.  Read by investigation tests to verify
    * how many times identity.sign() fires during wallet.send() / ramps.onboard().
@@ -185,20 +187,16 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
   async setArkLabsContext(ctx: ArkLabsContext | null): Promise<void> {
     if (ctx === null) {
       this.arkLabsCtx = null;
+      this._contextPending = false;
       return;
     }
-    // 1. Drain all currently-queued sign() calls so we start with a clean queue.
+    // Drain any in-flight sign() so the context is set with nothing signing, then
+    // arm the pending flag. The flag is decoupled from the signingLock mutex:
+    // only a consuming (non-intent) sign() clears it, so a background renewal's
+    // intent-proof sign()s cannot steal the context from the foreground arkTx.
     await this.signingLock;
-    // 2. Set context while no sign() is running.
     this.arkLabsCtx = ctx;
-    // 3. Insert a new pending lock that blocks ALL subsequent sign() calls until
-    //    the intended sign() releases it via _contextLockRelease.
-    let release!: () => void;
-    this.signingLock = new Promise<void>((resolve) => {
-      release = resolve;
-      this._contextLockRelease = release;
-    });
-    // Do NOT release now — sign() releases it when it runs.
+    this._contextPending = true;
   }
 
   async xOnlyPublicKey(): Promise<Uint8Array> {
@@ -222,7 +220,7 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
    * settle operations from stealing the context.
    */
   hasPendingContext(): boolean {
-    return this._contextLockRelease !== null;
+    return this._contextPending;
   }
 
   async signMessage(
@@ -235,46 +233,41 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
   }
 
   async sign(tx: T, _inputIndexes?: number[]): Promise<T> {
-    // Serialize concurrent sign() calls so that a background wallet settle
-    // cannot interfere with the sign_with_hash_auth pre-flight of a test sign.
+    // Classify the PSBT before acquiring the lock (pure, no await). An Ark
+    // register-intent proof is identified by two Ark-specific conditions:
+    //   1. input[0].witnessUtxo.amount === 0n  (BIP-322 toSpend fake)
+    //   2. the raw PSBT bytes contain key 0xDE+"taptree"  (Ark VtxoTaprootTree field)
+    // No generic spending PSBT carries the 0xDE taptree unknown field. Intent
+    // proofs are authorized by WASM on their own merits and must NOT consume the
+    // ArkLabsContext — it is reserved for the foreground arkTx.
+    // input[0] keeps its tapLeafScript so arkd finalizes it along the tapscript
+    // path (intent/proof.go FinalizeAndExtract copies input[1]'s unknowns onto
+    // input[0], appends the operator fake sig, finalizes via FinalizeVtxoScript).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const input0 = (tx as any).getInput?.(0);
+    const psbtBytes = tx.toPSBT();
+    const isIntentProof = input0?.witnessUtxo?.amount === 0n &&
+      Buffer.from(psbtBytes).indexOf(ARK_TAPTREE_KEY) !== -1;
+
+    // Serialize concurrent sign() calls (mutex) so a background wallet settle
+    // cannot interfere with the sign_with_hash_auth pre-flight of a foreground sign.
     let releaseLock!: () => void;
     const prevLock = this.signingLock;
     this.signingLock = new Promise<void>((resolve) => { releaseLock = resolve; });
-
-    // If setArkLabsContext() is holding the lock, release it so prevLock resolves.
-    // This must happen BEFORE awaiting prevLock to avoid a deadlock: the context
-    // lock IS prevLock, so we must release it before we can await it.
-    if (this._contextLockRelease) {
-      const contextRelease = this._contextLockRelease;
-      this._contextLockRelease = null;
-      contextRelease();
-    }
-
     await prevLock;
 
+    // A consuming (non-intent) sign is the intended foreground consumer: clear the
+    // pending-context flag. Intent-proof signs skip this — they neither consume nor
+    // clear the context, so a background renewal's register-intent proofs can no
+    // longer strip the ArkLabsContext from the foreground arkTx. (Full protection
+    // against a background *non-intent* sign interleaving still relies on the
+    // caller invoking setArkLabsContext() synchronously before the foreground
+    // operation, since the upstream VtxoManager does not consult hasPendingContext().)
+    if (!isIntentProof) {
+      this._contextPending = false;
+    }
+
     try {
-      // Ark intent proof PSBTs have input[0] as a BIP-322 toSpend reference with
-      // witnessUtxo.amount=0.  arkd treats input[0] as a tapscript input identical
-      // to the vtxo inputs (intent/proof.go FinalizeAndExtract copies input[1]'s
-      // unknowns onto input[0], appends the operator fake sig, and finalizes it via
-      // FinalizeVtxoScript).  So input[0] must KEEP its tapLeafScript and be signed
-      // along the tapscript path — leaving the owner's partial sig in
-      // TaprootScriptSpendSig for arkd to finalize.  (An earlier workaround cleared
-      // this leaf to force key-path signing; that was part of the reverted key-path
-      // approach and stripped the leaf arkd needs to finalize input[0].)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const input0 = (tx as any).getInput?.(0);
-
-      // An Ark register-intent PSBT is identified by two Ark-specific conditions:
-      //   1. input[0].witnessUtxo.amount === 0n  (BIP-322 toSpend fake)
-      //   2. the raw PSBT bytes contain key 0xDE+"taptree"  (Ark VtxoTaprootTree field)
-      // No generic spending PSBT carries the 0xDE taptree unknown field.
-      // Intent proofs are allowed unconditionally by WASM and must NOT consume the
-      // ArkLabsContext — preserving it for the subsequent arkTx that needs it.
-      const psbtBytes = tx.toPSBT();
-      const isIntentProof = input0?.witnessUtxo?.amount === 0n &&
-        Buffer.from(psbtBytes).indexOf(ARK_TAPTREE_KEY) !== -1;
-
       const psbtBase64 = Buffer.from(psbtBytes).toString('base64');
       // Temporary investigation log — remove after confirming FORFEIT/CHECKPOINT call paths.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -291,7 +284,7 @@ export class SigbashArkLabsIdentity<T extends ArkLabsTransaction = ArkLabsTransa
       );
 
       // Consume context only for real spending PSBTs (non-intent-proofs).
-      // Intent proofs pass undefined so WASM uses its unconditional allowance.
+      // Intent proofs pass undefined so WASM authorizes them on their own merits.
       const arkLabsIntentContext = isIntentProof ? undefined : (this.arkLabsCtx ?? undefined);
       if (!isIntentProof) {
         this.arkLabsCtx = null; // clear before the async call to prevent bleed
