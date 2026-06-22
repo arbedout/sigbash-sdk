@@ -135,7 +135,7 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.6.1';
+export const SDK_VERSION = '0.7.0';
 
 // Ark Labs integration — @arkade-os/ts-sdk Identity bridge
 export {
