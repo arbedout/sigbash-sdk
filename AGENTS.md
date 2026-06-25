@@ -358,3 +358,4 @@ Consult these docs when you need more detail — do not guess at parameter schem
 | Rate-limit and time-window semantics (count + time constraints) | [docs/stateful-constraints.md](docs/stateful-constraints.md) |
 | Verifying proof bundles | [docs/verifying.md](docs/verifying.md) |
 | Admin operations (user mgmt, 2FA, updateable policies, recovery) | [docs/admin.md](docs/admin.md) |
+| Ark Labs integration (ASP-only policy, SigbashArkLabsIdentity) | [docs/ark-labs.md](docs/ark-labs.md) |
