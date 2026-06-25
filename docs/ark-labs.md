@@ -69,7 +69,7 @@ Before registering a key you need three values from the arkd `GET /v1/info` endp
 ```typescript
 const aspInfo = await fetch('https://your-asp.example/v1/info').then(r => r.json());
 
-const ASP_PUBKEY      = aspInfo.signerPubkey;    // x-only hex (32 bytes as 64-char hex)
+const ASP_PUBKEY      = aspInfo.signerPubkey;    // 33-byte compressed pubkey hex (66 chars)
 const FORFEIT_PUBKEY  = aspInfo.forfeitPubkey;   // used in MATCH_ARK_CHECKPOINT
 const FORFEIT_ADDRESS = aspInfo.forfeitAddress;  // bech32m P2TR; convert to scriptPubKey for MATCH_ARK_FORFEIT
 const CHECKPOINT_TAPSCRIPT = aspInfo.checkpointTapscript; // raw hex of server-unroll leaf
@@ -99,13 +99,24 @@ const CSV_TIMEOUT = decodeCsvTimeout(CHECKPOINT_TAPSCRIPT);
 atom compares against a raw scriptPubKey, not a bech32m address. Decode the address:
 
 ```typescript
-import { bech32m } from '@scure/base';
+import { bech32, bech32m } from '@scure/base';
 
 function addressToScriptPubKey(address: string): string {
-  const { words } = bech32m.decode(address);
+  // Try bech32m first (P2TR / segwit v1+), fall back to bech32 (P2WPKH/P2WSH / segwit v0).
+  let words: number[];
+  let fromWords: (words: number[]) => Uint8Array;
+  try {
+    ({ words } = bech32m.decode(address));
+    fromWords = bech32m.fromWords;
+  } catch {
+    ({ words } = bech32.decode(address));
+    fromWords = bech32.fromWords;
+  }
   const witnessVersion = words[0];
-  const program = bech32m.fromWords(words.slice(1));
-  return Buffer.from([0x51, program.length, ...program]).toString('hex');
+  const program = fromWords(words.slice(1));
+  // segwit v0 → OP_0 (0x00); segwit v1..v16 → OP_1..OP_16 (0x51..0x60)
+  const versionOpcode = witnessVersion === 0 ? 0x00 : 0x50 + witnessVersion;
+  return Buffer.from([versionOpcode, program.length, ...program]).toString('hex');
 }
 const FORFEIT_SPK = addressToScriptPubKey(FORFEIT_ADDRESS);
 ```
@@ -122,7 +133,7 @@ const policy = conditionConfigToPoetPolicy({
   conditions: [
     {
       type: 'MATCH_ARK_INTENT',
-      // ASP's x-only pubkey — verified in every vtxo taptree the wallet builds.
+      // ASP's 33-byte compressed pubkey — verified in every vtxo taptree the wallet builds.
       operator_pubkey: ASP_PUBKEY,
       // How long a RegisterMessage stays valid (seconds). Match the ASP's window.
       max_validity_duration_secs: 7200,
@@ -224,9 +235,10 @@ identity. Pass it as `identity` to `Wallet.create()`.
 
 ```typescript
 import { SigbashArkLabsIdentity } from '@sigbash/sdk';
-import { Wallet, Transaction } from '@arkade-os/ts-sdk';
-import { TreeSignerSession } from '@arkade-os/ts-sdk/src/tree/signingSession';
-import { InMemoryWalletRepository, InMemoryContractRepository, EsploraProvider } from '@arkade-os/ts-sdk';
+import {
+  Wallet, Transaction, SingleKey,
+  InMemoryWalletRepository, InMemoryContractRepository, EsploraProvider,
+} from '@arkade-os/sdk';
 
 const identity = new SigbashArkLabsIdentity(
   client,
@@ -234,7 +246,7 @@ const identity = new SigbashArkLabsIdentity(
   kmcJSON,
   aggregatePubkeyCompressed,          // 33-byte compressed aggregate key
   'signet',
-  () => TreeSignerSession.random(),   // MuSig2 tree signer session factory
+  () => SingleKey.fromRandomBytes().signerSession(),  // MuSig2 tree signer session factory
   (bytes) => Transaction.fromPSBT(bytes),
 );
 
@@ -272,7 +284,7 @@ await identity.setArkLabsContext({
     onchain_output_indexes: [],
     valid_at:  Math.floor(Date.now() / 1000),
     expire_at: Math.floor(Date.now() / 1000) + 3600,
-    cosigners_public_keys: [ASP_PUBKEY],
+    cosigners_public_keys: [ASP_PUBKEY],  // 33-byte compressed pubkey hex (same as operator_pubkey above)
   }),
   // One entry per input: the raw tapscript bytes (no version suffix) as hex.
   vtxoTaprootTrees: vtxos.map(v =>
@@ -300,7 +312,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (x-only hex) | yes | ASP's operator pubkey. Verified against every vtxo taptree. |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's operator pubkey. Verified against every vtxo taptree. |
 | `max_validity_duration_secs` | number | yes | Maximum age of a RegisterMessage in seconds. |
 | `allowed_destinations` | string[] | yes | scriptPubKey hex strings of permitted outputs. `SIGBASH_ARK_SELF_VTXO` resolves to the signer's own vtxo change output. |
 | `exit_delay_seconds` | number | if `SIGBASH_ARK_SELF_VTXO` in destinations | ASP's vtxo exit delay in seconds; used to derive the self-vtxo scriptPubKey. |
@@ -311,7 +323,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (x-only hex) | yes | ASP's forfeit/checkpoint key (`forfeitPubkey` from `/v1/info`). |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's forfeit/checkpoint key (`forfeitPubkey` from `/v1/info`). |
 | `csv_timeout` | number | yes | Raw BIP-68 sequence from the server-unroll leaf (decode with `decodeCsvTimeout` above — not seconds). |
 | `max_fee` | number | yes | Absolute fee cap in sats. |
 
@@ -319,7 +331,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (x-only hex) | yes | ASP's operator pubkey. |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's operator pubkey. |
 | `forfeit_script_pubkey` | string (hex) | yes | ASP's forfeit output scriptPubKey hex (`forfeitAddress` converted with `addressToScriptPubKey`). |
 | `max_fee` | number | yes | Absolute fee cap in sats. |
 
@@ -327,7 +339,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (x-only hex) | yes | ASP's operator pubkey. |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's operator pubkey. |
 | `max_validity_duration_secs` | number | yes | Maximum age of the exit RegisterMessage in seconds. |
 | `allowed_destinations` | string[] | yes | Permitted onchain exit destinations as scriptPubKey hex strings. |
 | `min_exit_value` | number | yes | Minimum total exit value in sats. |
