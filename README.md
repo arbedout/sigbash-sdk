@@ -165,7 +165,7 @@ Then as needed:
 - [Stateful Constraints](docs/stateful-constraints.md) — `COUNT_BASED_CONSTRAINT` and `TIME_BASED_CONSTRAINT`
 - [Error Handling](docs/error-handling.md) — error class hierarchy and recovery patterns
 - [Running the HTTP Server](docs/server.md) — standalone Node.js, Docker, curl examples
-- [Ark Labs Integration](docs/ark-labs.md) — `MATCH_ARK_*` policy atoms, `SigbashArkLabsIdentity`, ASP key setup
+- [Ark Labs Integration](docs/ark-labs.md) — `MATCH_ARK_*` policy atoms, `SigbashArkadeIdentity`, operator key setup
 
 ---
 

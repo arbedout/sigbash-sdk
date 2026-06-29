@@ -135,18 +135,18 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.7.0';
+export const SDK_VERSION = '0.7.1';
 
-// Ark Labs integration — @arkade-os/ts-sdk Identity bridge
+// Arkade integration — @arkade-os/ts-sdk Identity bridge
 export {
-  SigbashArkLabsIdentity,
-  SigbashArkLabsSigningError,
-} from './SigbashArkLabsIdentity';
+  SigbashArkadeIdentity,
+  SigbashArkadeSigningError,
+} from './SigbashArkadeIdentity';
 export type {
-  ArkLabsContext,
-  ArkLabsTransaction,
-  ArkLabsSignerSession,
-} from './SigbashArkLabsIdentity';
+  ArkadeContext,
+  ArkadeTransaction,
+  ArkadeSignerSession,
+} from './SigbashArkadeIdentity';
 
 // Audit log
 export {

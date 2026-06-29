@@ -7,22 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-06-29
+
+### Changed
+
+- Renamed `SigbashArkLabsIdentity` → `SigbashArkadeIdentity`, `SigbashArkLabsSigningError` → `SigbashArkadeSigningError`, and associated types (`ArkLabsContext` → `ArkadeContext`, etc.) to align with Arkade terminology. `setArkLabsContext()` → `setArkadeContext()`. `arkLabsIntentContext` option on `signPSBT()` → `arkadeIntentContext`.
+
 ## [0.7.0] — 2026-06-22
 
 ### Added
 
-- **Arkade wallet support.** `SigbashArkLabsIdentity` — a drop-in
+- **Arkade wallet support.** `SigbashArkadeIdentity` — a drop-in
   `@arkade-os/ts-sdk` `Identity` that co-signs Ark intent proofs and checkpoint,
   forfeit, and collaborative-exit transactions under a Sigbash policy. Also
-  exports `SigbashArkLabsSigningError` and the `ArkLabsContext`,
-  `ArkLabsTransaction`, and `ArkLabsSignerSession` types.
+  exports `SigbashArkadeSigningError` and the `ArkadeContext`,
+  `ArkadeTransaction`, and `ArkadeSignerSession` types.
 - `finalizePsbt` option on `signPSBT()` — populates `FinalScriptWitness` on the
   returned PSBT so it is BIP-174 complete and can be extracted without a
   separate finalize step.
 
 ### Changed
 
-- `SigbashArkLabsSigningError` now marks expected policy outcomes (a PSBT that
+- `SigbashArkadeSigningError` now marks expected policy outcomes (a PSBT that
   does not satisfy the key's policy) with an `informational` flag and omits the
   stack trace for them, so background signing flows log a single clean line
   rather than a full trace. Genuine failures keep their stack.

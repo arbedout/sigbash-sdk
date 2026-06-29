@@ -1,20 +1,20 @@
 # Ark Labs Integration
 
 This doc covers Sigbash integration with **Ark Labs** — the `@arkade-os/sdk` wallet
-and `arkd` ASP implementation. The four `MATCH_ARK_*` policy atoms are specific to
+and `arkd` operator implementation. The four `MATCH_ARK_*` policy atoms are specific to
 the Ark Labs PSBT structure and register-intent protocol; they are not generic to
 other Ark implementations.
 
 In the Ark Labs model, a virtual UTXO (vtxo) lives in a shared output tree managed
-by an Ark Service Provider (ASP). Funds move cooperatively inside the tree without
+by the operator (Arkade Service). Funds move cooperatively inside the tree without
 touching the blockchain; a CSV-gated tapscript leaf lets users exit unilaterally
-after the ASP's timeout expires, without needing ASP cooperation.
+after the operator's timeout expires, without needing operator cooperation.
 
 Sigbash adds a policy-gated co-signing layer on top: your Ark Labs wallet can only
 move funds when the transaction satisfies the conditions you chose at key-registration
-time. The ASP never sees your policy; the Sigbash server never sees the transaction.
+time. The operator never sees your policy; the Sigbash server never sees the transaction.
 
-This doc covers the canonical "ASP-only" setup — a key that may only transact within
+This doc covers the canonical "operator-only" setup — a key that may only transact within
 the Ark Labs network (cooperative sends and exits) — and walks through the full
 TypeScript SDK integration using `@arkade-os/sdk`.
 
@@ -28,19 +28,19 @@ Four Sigbash condition types cover every PSBT shape an Ark Labs wallet produces:
 |---|---|---|
 | `MATCH_ARK_INTENT` | vtxo spend (1 or more inputs spending vtxo tapscript leaves) | `wallet.send()` — the main cooperative send |
 | `MATCH_ARK_CHECKPOINT` | 1-in / 2-out, output[1] is P2A anchor | Intermediate checkpoint tx produced automatically during `wallet.send()` |
-| `MATCH_ARK_FORFEIT` | 2-in / 2-out (vtxo tapscript + connector keyspend) | ASP-initiated forfeit during settlement |
+| `MATCH_ARK_FORFEIT` | 2-in / 2-out (vtxo tapscript + connector keyspend) | Operator-initiated forfeit during settlement |
 | `MATCH_ARK_COLLABORATIVE_EXIT` | vtxo spend with exit-intent RegisterMessage | `ramps.offboard()` — cooperative onchain exit |
 
 **The OR requirement.** A single `wallet.send()` call triggers two policy-gated co-signs:
 first the intent spend (`MATCH_ARK_INTENT`) and then the intermediate checkpoint tx
-(`MATCH_ARK_CHECKPOINT`). The `ArkLabsContext` is single-use and is consumed by the
+(`MATCH_ARK_CHECKPOINT`). The `ArkadeContext` is single-use and is consumed by the
 intent sign, so the checkpoint sign runs without context. The policy must cover both
 shapes via OR, or the checkpoint co-sign will be rejected.
 
 Similarly, `ramps.offboard()` produces an exit spend (`MATCH_ARK_COLLABORATIVE_EXIT`)
 followed by a forfeit-shaped settlement tx (`MATCH_ARK_FORFEIT`).
 
-**Unilateral exit.** After the ASP's CSV timeout the user can sweep vtxos onchain via
+**Unilateral exit.** After the operator's CSV timeout the user can sweep vtxos onchain via
 the tapscript unilateral-exit leaf. This is Ark-protocol-level and requires no
 Sigbash co-signing; no policy atom is needed to allow it.
 
@@ -62,17 +62,17 @@ OR(MATCH_ARK_INTENT, MATCH_ARK_CHECKPOINT, MATCH_ARK_FORFEIT, MATCH_ARK_COLLABOR
 
 ---
 
-## Step 1: Fetch ASP parameters
+## Step 1: Fetch operator parameters
 
 Before registering a key you need three values from the arkd `GET /v1/info` endpoint:
 
 ```typescript
-const aspInfo = await fetch('https://your-asp.example/v1/info').then(r => r.json());
+const operatorInfo = await fetch('https://your-arkade-service.example/v1/info').then(r => r.json());
 
-const ASP_PUBKEY      = aspInfo.signerPubkey;    // 33-byte compressed pubkey hex (66 chars)
-const FORFEIT_PUBKEY  = aspInfo.forfeitPubkey;   // used in MATCH_ARK_CHECKPOINT
-const FORFEIT_ADDRESS = aspInfo.forfeitAddress;  // bech32m P2TR; convert to scriptPubKey for MATCH_ARK_FORFEIT
-const CHECKPOINT_TAPSCRIPT = aspInfo.checkpointTapscript; // raw hex of server-unroll leaf
+const OPERATOR_PUBKEY      = operatorInfo.signerPubkey;    // 33-byte compressed pubkey hex (66 chars)
+const FORFEIT_PUBKEY  = operatorInfo.forfeitPubkey;   // used in MATCH_ARK_CHECKPOINT
+const FORFEIT_ADDRESS = operatorInfo.forfeitAddress;  // bech32m P2TR; convert to scriptPubKey for MATCH_ARK_FORFEIT
+const CHECKPOINT_TAPSCRIPT = operatorInfo.checkpointTapscript; // raw hex of server-unroll leaf
 ```
 
 **Decoding `csv_timeout`.** The `MATCH_ARK_CHECKPOINT` atom requires the raw BIP-68
@@ -133,15 +133,15 @@ const policy = conditionConfigToPoetPolicy({
   conditions: [
     {
       type: 'MATCH_ARK_INTENT',
-      // ASP's 33-byte compressed pubkey — verified in every vtxo taptree the wallet builds.
-      operator_pubkey: ASP_PUBKEY,
-      // How long a RegisterMessage stays valid (seconds). Match the ASP's window.
+      // The operator's 33-byte compressed pubkey — verified in every vtxo taptree the wallet builds.
+      operator_pubkey: OPERATOR_PUBKEY,
+      // How long a RegisterMessage stays valid (seconds). Match the operator's window.
       max_validity_duration_secs: 7200,
       // Output destinations this key may pay. SIGBASH_ARK_SELF_VTXO resolves at
       // signing time to the signer's own change vtxo (requires exit_delay_seconds).
       // Add the scriptPubKey hex of any additional permitted recipients.
       allowed_destinations: ['SIGBASH_ARK_SELF_VTXO'],
-      // Must match the ASP's vtxo exit delay (seconds). Required when
+      // Must match the operator's vtxo exit delay (seconds). Required when
       // SIGBASH_ARK_SELF_VTXO is in allowed_destinations.
       exit_delay_seconds: 512,
       // Sats bounds applied to every non-self output in the vtxo tree.
@@ -150,7 +150,7 @@ const policy = conditionConfigToPoetPolicy({
     },
     {
       type: 'MATCH_ARK_CHECKPOINT',
-      // The forfeit/checkpoint key — may differ from ASP_PUBKEY; use forfeitPubkey.
+      // The forfeit/checkpoint key — may differ from OPERATOR_PUBKEY; use forfeitPubkey.
       operator_pubkey: FORFEIT_PUBKEY,
       // Raw BIP-68 sequence from the server-unroll leaf (decoded above).
       csv_timeout: CSV_TIMEOUT,
@@ -159,8 +159,8 @@ const policy = conditionConfigToPoetPolicy({
     },
     {
       type: 'MATCH_ARK_FORFEIT',
-      operator_pubkey: ASP_PUBKEY,
-      // The ASP's forfeit P2TR as a scriptPubKey hex string (converted above).
+      operator_pubkey: OPERATOR_PUBKEY,
+      // The operator's forfeit P2TR as a scriptPubKey hex string (converted above).
       forfeit_script_pubkey: FORFEIT_SPK,
       // Absolute fee cap for the forfeit tx (sats).
       max_fee: 5000,
@@ -168,7 +168,7 @@ const policy = conditionConfigToPoetPolicy({
     // Remove this arm if you do not want cooperative onchain exits.
     {
       type: 'MATCH_ARK_COLLABORATIVE_EXIT',
-      operator_pubkey: ASP_PUBKEY,
+      operator_pubkey: OPERATOR_PUBKEY,
       max_validity_duration_secs: 7200,
       // Permitted onchain exit destinations as scriptPubKey hex strings.
       // These are the addresses the user may exit to.
@@ -213,7 +213,7 @@ const { kmcJSON } = await client.getKey(keyId);
 ```
 
 `aggregatePubKeyHex` is the 32-byte x-only aggregate key. When constructing
-`SigbashArkLabsIdentity` (Step 4), you need the 33-byte *compressed* form. Extract
+`SigbashArkadeIdentity` (Step 4), you need the 33-byte *compressed* form. Extract
 it from the KMC's `internal_public_key` field:
 
 ```typescript
@@ -228,19 +228,19 @@ const aggregatePubkeyCompressed = Buffer.from(
 
 ---
 
-## Step 4: Construct SigbashArkLabsIdentity
+## Step 4: Construct SigbashArkadeIdentity
 
-`SigbashArkLabsIdentity` wraps a `SigbashClient` key as an Ark-compatible signing
+`SigbashArkadeIdentity` wraps a `SigbashClient` key as an Ark-compatible signing
 identity. Pass it as `identity` to `Wallet.create()`.
 
 ```typescript
-import { SigbashArkLabsIdentity } from '@sigbash/sdk';
+import { SigbashArkadeIdentity } from '@sigbash/sdk';
 import {
   Wallet, Transaction, SingleKey,
   InMemoryWalletRepository, InMemoryContractRepository, EsploraProvider,
 } from '@arkade-os/sdk';
 
-const identity = new SigbashArkLabsIdentity(
+const identity = new SigbashArkadeIdentity(
   client,
   keyId,
   kmcJSON,
@@ -252,7 +252,7 @@ const identity = new SigbashArkLabsIdentity(
 
 const wallet = await Wallet.create({
   identity,
-  arkServerUrl: 'https://your-asp.example',
+  arkServerUrl: 'https://your-arkade-service.example',
   onchainProvider: new EsploraProvider('https://your-esplora.example'),
   storage: {
     walletRepository: new InMemoryWalletRepository(),
@@ -266,7 +266,7 @@ const wallet = await Wallet.create({
 ## Step 5: Sign with context
 
 For `MATCH_ARK_INTENT` and `MATCH_ARK_COLLABORATIVE_EXIT`, the WASM evaluator
-requires a `RegisterMessage` from the ASP and the vtxo taptree paths of the inputs
+requires a `RegisterMessage` from the operator and the vtxo taptree paths of the inputs
 being spent. Inject this before each wallet operation:
 
 ```typescript
@@ -275,8 +275,8 @@ const vtxos = await wallet.getVtxos();
 
 // Build the context. vtxoTaprootTrees is a per-input array of tapscript leaf
 // hex strings (the intent/exit branch of each vtxo's taptree).
-await identity.setArkLabsContext({
-  // The JSON-encoded RegisterMessage returned by the ASP during send/exit setup.
+await identity.setArkadeContext({
+  // The JSON-encoded RegisterMessage returned by the operator during send/exit setup.
   // In the ts-sdk this is produced internally; expose it via the Intent API or
   // capture it from the wallet's register-intent flow.
   registerMessageJson: JSON.stringify({
@@ -284,7 +284,7 @@ await identity.setArkLabsContext({
     onchain_output_indexes: [],
     valid_at:  Math.floor(Date.now() / 1000),
     expire_at: Math.floor(Date.now() / 1000) + 3600,
-    cosigners_public_keys: [ASP_PUBKEY],  // 33-byte compressed pubkey hex (same as operator_pubkey above)
+    cosigners_public_keys: [OPERATOR_PUBKEY],  // 33-byte compressed pubkey hex (same as operator_pubkey above)
   }),
   // One entry per input: the raw tapscript bytes (no version suffix) as hex.
   vtxoTaprootTrees: vtxos.map(v =>
@@ -312,10 +312,10 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's operator pubkey. Verified against every vtxo taptree. |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's pubkey. Verified against every vtxo taptree. |
 | `max_validity_duration_secs` | number | yes | Maximum age of a RegisterMessage in seconds. |
 | `allowed_destinations` | string[] | yes | scriptPubKey hex strings of permitted outputs. `SIGBASH_ARK_SELF_VTXO` resolves to the signer's own vtxo change output. |
-| `exit_delay_seconds` | number | if `SIGBASH_ARK_SELF_VTXO` in destinations | ASP's vtxo exit delay in seconds; used to derive the self-vtxo scriptPubKey. |
+| `exit_delay_seconds` | number | if `SIGBASH_ARK_SELF_VTXO` in destinations | The operator's vtxo exit delay in seconds; used to derive the self-vtxo scriptPubKey. |
 | `min_receiver_value` | number | yes | Minimum sats for any non-self vtxo output. |
 | `max_receiver_value` | number | yes | Maximum sats for any non-self vtxo output. |
 
@@ -323,7 +323,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's forfeit/checkpoint key (`forfeitPubkey` from `/v1/info`). |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's forfeit/checkpoint key (`forfeitPubkey` from `/v1/info`). |
 | `csv_timeout` | number | yes | Raw BIP-68 sequence from the server-unroll leaf (decode with `decodeCsvTimeout` above — not seconds). |
 | `max_fee` | number | yes | Absolute fee cap in sats. |
 
@@ -331,15 +331,15 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's operator pubkey. |
-| `forfeit_script_pubkey` | string (hex) | yes | ASP's forfeit output scriptPubKey hex (`forfeitAddress` converted with `addressToScriptPubKey`). |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's pubkey. |
+| `forfeit_script_pubkey` | string (hex) | yes | The operator's forfeit output scriptPubKey hex (`forfeitAddress` converted with `addressToScriptPubKey`). |
 | `max_fee` | number | yes | Absolute fee cap in sats. |
 
 ### MATCH_ARK_COLLABORATIVE_EXIT
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | ASP's operator pubkey. |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's pubkey. |
 | `max_validity_duration_secs` | number | yes | Maximum age of the exit RegisterMessage in seconds. |
 | `allowed_destinations` | string[] | yes | Permitted onchain exit destinations as scriptPubKey hex strings. |
 | `min_exit_value` | number | yes | Minimum total exit value in sats. |
@@ -351,7 +351,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Error | Cause |
 |---|---|
-| Policy not satisfied — no intent context | `setArkLabsContext()` was not called before `wallet.send()`. |
+| Policy not satisfied — no intent context | `setArkadeContext()` was not called before `wallet.send()`. |
 | Policy not satisfied — output destination not allowed | A vtxo output scriptPubKey is not in `allowed_destinations`. Add the destination or use `SIGBASH_ARK_SELF_VTXO` for change. |
 | Policy not satisfied — operator key not found in vtxo taptree | `operator_pubkey` does not match the key present in the vtxo's tapscript leaves. Verify against `/v1/info`. |
 | Policy not satisfied — receiver value out of range | A vtxo output is outside `[min_receiver_value, max_receiver_value]`. Widen the bounds or check the amount. |

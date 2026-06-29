@@ -367,14 +367,14 @@ export interface SignPSBTOptions {
    */
   mockedTime?: number;
   /**
-   * Optional Ark Labs intent context for MATCH_ARK_INTENT policy condition
+   * Optional Arkade intent context for MATCH_ARK_INTENT policy condition
    * evaluation.  When present, serialized as JSON and forwarded to the WASM
    * as the 7th argument (args[6]) of SigbashWASM_SignPSBTBlind.
    *
-   * `registerMessageJson` is the JSON-encoded Ark Labs register message.
+   * `registerMessageJson` is the JSON-encoded Arkade operator register message.
    * `vtxoTaprootTrees` is the per-input array of tapscript branch paths.
    */
-  arkLabsIntentContext?: {
+  arkadeIntentContext?: {
     registerMessageJson: string;
     vtxoTaprootTrees: string[][];
   };
