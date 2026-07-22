@@ -1079,6 +1079,36 @@ export class SigbashClient {
   }
 
   /**
+   * Opt-in early start for the prove worker pool's circuit warm-up.
+   *
+   * `signPSBT()` already initializes the worker pool and fires circuit
+   * warm-up itself, but only once a sign call has actually started — by
+   * then the ~3s full-circuit warm-up cost for each pool worker is on the
+   * critical path. Call `prewarm()` as soon as a signing flow becomes
+   * likely (e.g. when a "review & sign" screen mounts) to move that cost
+   * off the critical path. It is safe to call multiple times and safe to
+   * call even if the app never ends up calling `signPSBT()` — worker
+   * initialization and circuit warm-up are idempotent (worker-pool init is
+   * memoized, and each circuit accessor on the Go/WASM side is
+   * sync.Once-guarded), so calling `prewarm()` early and then again
+   * implicitly inside `signPSBT()` costs nothing extra.
+   *
+   * Not called automatically at SDK load time: each pool worker fetches
+   * ~19-23MB × 2 circuit binaries, so firing this unconditionally for every
+   * SDK consumer (including ones that never sign, or sign much later)
+   * would trade network/CPU cost now for latency later. Call it only when
+   * signing is actually anticipated.
+   */
+  async prewarm(): Promise<void> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    const workerMgr = getProveWorkerManager();
+    await workerMgr.init();
+    workerMgr.warmCircuits();
+  }
+
+  /**
    * Sign a PSBT using blind MuSig2 with the specified key.
    *
    * The full signing pipeline runs inside the Go WASM binary
