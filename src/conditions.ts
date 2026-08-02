@@ -403,7 +403,7 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
     },
   },
 
-  // INPUT_TXID_IS_IN_SETS removed in T73 — TxidList polynomial slot removed.
+  // INPUT_TXID_IS_IN_SETS removed in — TxidList polynomial slot removed.
 
   // -------------------------------------------------------------------------
   // Key requirement
@@ -686,6 +686,182 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
       type: 'TX_TEMPLATE_HASH_MATCHES',
       template_hash: 'aabbccdd...64hexchars',
       input_index: 0,
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Ark protocol conditions
+  // -------------------------------------------------------------------------
+
+  MATCH_ARK_INTENT: {
+    description:
+      'Validates an Ark protocol intent (BIP-322) message structure, ' +
+      'operator-binding via vtxo taptrees, and receiver scripts/values. ' +
+      'Only intent transactions bound to the specified operator and sending to allowed ' +
+      'destinations within the value bounds are signed.',
+    requiresSelector: false,
+    params: {
+      operator_pubkey: {
+        type: 'string',
+        description: '33-byte compressed secp256k1 operator public key (66 hex chars). Only intents bound to this operator are signed.',
+        required: true,
+      },
+      exit_delay_seconds: {
+        type: 'number',
+        description: 'Exit delay in seconds encoded in the vtxo taptree exit leaf. Used to verify the operator-bound leaf.',
+        required: false,
+      },
+      allowed_destinations: {
+        type: 'string[]',
+        description:
+          'Allow-list of scriptPubKey hex strings or Ark addresses (ark1.../tark1...). ' +
+          'The special value "SIGBASH_ARK_SELF_VTXO" resolves at signing time to the ' +
+          "signer's own default vtxo change address.",
+        required: true,
+      },
+      min_receiver_value: {
+        type: 'number',
+        description: 'Minimum per-receiver output value in satoshis.',
+        required: true,
+      },
+      max_receiver_value: {
+        type: 'number',
+        description: 'Maximum per-receiver output value in satoshis.',
+        required: true,
+      },
+      max_fee: {
+        type: 'number',
+        description: 'Maximum fee in satoshis.',
+        required: true,
+      },
+    },
+    example: {
+      type: 'MATCH_ARK_INTENT',
+      operator_pubkey: '03a1b2c3...',
+      exit_delay_seconds: 512,
+      allowed_destinations: ['SIGBASH_ARK_SELF_VTXO', '0014...'],
+      min_receiver_value: 1000,
+      max_receiver_value: 500000,
+      max_fee: 5000,
+    },
+  },
+
+  MATCH_ARK_CHECKPOINT: {
+    description:
+      'Validates a self-send Ark checkpoint PSBT structural match. ' +
+      'Verifies collaborative leaf script-path spend, output[0] taptree reconstruction ' +
+      '(vtxo forfeit leaf + server-unroll leaf under NUMS internal key), P2A anchor at output[1], ' +
+      'and fee cap.',
+    requiresSelector: false,
+    params: {
+      operator_pubkey: {
+        type: 'string',
+        description: '33-byte compressed secp256k1 operator public key (66 hex chars). Used to build the ServerUnrollLeaf in output[0] taptree.',
+        required: true,
+      },
+      csv_timeout: {
+        type: 'number',
+        description: 'BIP-68 relative locktime sequence for the ServerUnrollLeaf. Must match the raw sequence value from the operator\'s arkd config.',
+        required: true,
+      },
+      max_fee: {
+        type: 'number',
+        description: 'Maximum fee in satoshis.',
+        required: true,
+      },
+    },
+    example: {
+      type: 'MATCH_ARK_CHECKPOINT',
+      operator_pubkey: '03a1b2c3...',
+      csv_timeout: 144,
+      max_fee: 5000,
+    },
+  },
+
+  MATCH_ARK_FORFEIT: {
+    description:
+      'Validates an Ark protocol forfeit transaction. Checks transaction shape, ' +
+      'sighash type, output destination, and fee cap. Supports both direct ' +
+      '(2-input SIGHASH_DEFAULT) and delegated (1-input SIGHASH_ALL|ANYONECANPAY) forfeits ' +
+      'via the delegation selector.',
+    requiresSelector: false,
+    params: {
+      operator_pubkey: {
+        type: 'string',
+        description: '33-byte compressed secp256k1 operator public key (66 hex chars).',
+        required: true,
+      },
+      forfeit_script_pubkey: {
+        type: 'string',
+        description: 'Operator-published forfeit output scriptPubKey as hex.',
+        required: true,
+      },
+      max_fee: {
+        type: 'number',
+        description: 'Maximum fee in satoshis.',
+        required: true,
+      },
+      delegation: {
+        type: 'string',
+        description:
+          'Controls whether the delegated (ANYONECANPAY) forfeit flow is permitted. ' +
+          '"disallow" (default): 2-input SIGHASH_DEFAULT only. ' +
+          '"require": 1-input SIGHASH_ALL|ANYONECANPAY only. ' +
+          '"allow": accept both.',
+        required: false,
+        enum: ['disallow', 'allow', 'require'] as const,
+        default: 'disallow',
+      },
+    },
+    example: {
+      type: 'MATCH_ARK_FORFEIT',
+      operator_pubkey: '03a1b2c3...',
+      forfeit_script_pubkey: '0014...',
+      max_fee: 1000,
+      delegation: 'disallow',
+    },
+  },
+
+  MATCH_ARK_COLLABORATIVE_EXIT: {
+    description:
+      'Validates an Ark collaborative exit (offboard) transaction. ' +
+      'Checks operator binding via vtxo taptrees, output destination, ' +
+      'exit value bounds, and fee cap.',
+    requiresSelector: false,
+    params: {
+      operator_pubkey: {
+        type: 'string',
+        description: '33-byte compressed secp256k1 operator public key (66 hex chars).',
+        required: true,
+      },
+      allowed_destinations: {
+        type: 'string[]',
+        description: 'Allow-list of onchain scriptPubKey hex strings permitted as exit destinations.',
+        required: true,
+      },
+      min_exit_value: {
+        type: 'number',
+        description: 'Minimum exit output value in satoshis.',
+        required: true,
+      },
+      max_exit_value: {
+        type: 'number',
+        description: 'Maximum exit output value in satoshis.',
+        required: true,
+      },
+      max_fee: {
+        type: 'number',
+        description: 'Maximum fee in satoshis.',
+        required: true,
+      },
+    },
+    example: {
+      type: 'MATCH_ARK_COLLABORATIVE_EXIT',
+      operator_pubkey: '03a1b2c3...',
+      allowed_destinations: ['0014beefcafe...'],
+      min_exit_value: 1000,
+      max_exit_value: 100000,
+      max_fee: 5000,
     },
   },
 

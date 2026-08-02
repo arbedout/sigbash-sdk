@@ -1303,7 +1303,7 @@ export class SigbashClient {
         publicInputsJSON,
       });
 
-      // T92: Register witness+prove dispatcher so output chunk proves run on
+      // Register witness+prove dispatcher so output chunk proves run on
       // workers instead of blocking the main Go WASM thread.  Without this,
       // the chunk prove runs inline and serializes with the unified prove.
       (globalThis as Record<string, unknown>)['_sigbashWitnessAndProveAsync'] = (
@@ -1323,7 +1323,7 @@ export class SigbashClient {
       });
     }
 
-    // TX121 Phase 4: thread mockedTime (test-only) into the WASM via the
+    // Phase 4: thread mockedTime (test-only) into the WASM via the
     // SetMockedTimeForTesting global. Production WASM registers a no-op
     // stub, so this is a no-op outside of test-mode servers. Reset in the
     // `finally` below so subsequent signs default back to real time.
@@ -1341,7 +1341,6 @@ export class SigbashClient {
     const arkadeCtxJSON = options.arkadeIntentContext
       ? JSON.stringify({
           register_message_json: options.arkadeIntentContext.registerMessageJson,
-          vtxo_taproot_trees: options.arkadeIntentContext.vtxoTaprootTrees,
         })
       : undefined;
 
@@ -1372,7 +1371,9 @@ export class SigbashClient {
         errMsg.includes('Policy not satisfied') ||
         errMsg.includes('nullifier constraint validation failed') ||
         errMsg.includes('max uses exhausted') ||
-        errMsg.includes('failed to extract constraints from PathLeaf');
+        errMsg.includes('failed to extract constraints from PathLeaf') ||
+        errMsg.includes('MATCH_ARK_FORFEIT: connector input[1] must be a keyspend') ||
+        errMsg.includes('one or more scripts are not in the allowlist');
       if (isSoftPolicyFailure) {
         return { success: false, error: errMsg };
       }

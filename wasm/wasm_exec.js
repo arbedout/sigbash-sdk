@@ -242,9 +242,13 @@
 					},
 
 					// func resetMemoryDataView()
+					// No-op: `mem` is now a getter that always dereferences
+					// exports.mem.buffer fresh (see the class-level comment on
+					// `get mem()`), so there is no cached DataView left to reset.
+					// Import kept registered since Go's compiled runtime still
+					// calls it after every memory.grow.
 					"runtime.resetMemoryDataView": (sp) => {
 						sp >>>= 0;
-						this.mem = new DataView(this._inst.exports.mem.buffer);
 					},
 
 					// func nanotime1() int64
@@ -462,12 +466,29 @@
 			};
 		}
 
+		// `mem` is a getter, not a cached field: WebAssembly.Memory.buffer is
+		// replaced (not resized in place) whenever Go's runtime grows linear
+		// memory (memory.grow), and a DataView constructed over the OLD buffer
+		// silently goes stale (methods on a detached/superseded ArrayBuffer can
+		// read back zeros rather than throwing, depending on the engine). Large,
+		// growth-prone transfers — e.g. the ~87MB Longfellow unified-circuit
+		// witness sent to a Worker via js.CopyBytesToJS — are exactly the case
+		// most likely to trigger a grow between allocation and copy, and were
+		// observed corrupting the first bytes of the copied buffer (wire 0,
+		// the constant-1 wire, reading as 0) with the previous cached-field
+		// version of this shim. Always dereferencing exports.mem.buffer fresh
+		// removes the whole staleness class instead of requiring every
+		// memory-touching syscall to remember to call runtime.resetMemoryDataView
+		// first.
+		get mem() {
+			return new DataView(this._inst.exports.mem.buffer);
+		}
+
 		async run(instance) {
 			if (!(instance instanceof WebAssembly.Instance)) {
 				throw new Error("Go.run: WebAssembly.Instance expected");
 			}
 			this._inst = instance;
-			this.mem = new DataView(this._inst.exports.mem.buffer);
 			this._values = [ // JS values that Go currently has references to, indexed by reference id
 				NaN,
 				0,

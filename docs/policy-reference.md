@@ -31,6 +31,7 @@ the root node is satisfied.
   - [Derived (boolean) conditions](#derived-boolean-conditions)
   - [Template hash](#template-hash)
   - [BIP-443 covenant conditions](#bip-443-covenant-conditions)
+  - [Ark protocol conditions](#ark-protocol-conditions)
 - [Enums reference](#enums-reference)
 - [Complete examples](#complete-examples)
 
@@ -757,6 +758,143 @@ to read and validate the previous covenant state before authorising a state tran
   witness_data_hex: 'deadbeef',
   script_tree_root: 'abc123...64hexchars',
   validation_pattern: 'deadbeef****',
+}
+```
+
+---
+
+### Ark protocol conditions
+
+These conditions enforce Ark protocol spending rules. Ark is a second-layer Bitcoin
+protocol where virtual UTXOs (vtxos) can be spent via intent transactions, forfeited
+back to the operator, or exited collaboratively to the base chain.
+
+> **Policy composition:** A wallet that participates in all Ark flows (send, checkpoint,
+> forfeit) should compose the three atoms under `OR`:
+> `OR(MATCH_ARK_INTENT, MATCH_ARK_CHECKPOINT, MATCH_ARK_FORFEIT)`. Each atom
+> authorises exactly one Ark transaction shape; the evaluator for each atom falls
+> through to reject on shapes it does not recognise.
+
+#### `MATCH_ARK_INTENT`
+
+Validates an Ark intent (BIP-322) transaction: checks message structure, validity
+window, operator binding via vtxo taptrees, and receiver scripts/values.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `operator_pubkey` | `string` | yes | 33-byte compressed secp256k1 operator public key (66 hex chars) |
+| `exit_delay_seconds` | `number` | no | Exit delay in seconds encoded in the vtxo exit leaf |
+| `allowed_destinations` | `string[]` | yes | Allow-list of scriptPubKey hex strings or Ark addresses. `"SIGBASH_ARK_SELF_VTXO"` resolves to the signer's own change address at signing time |
+| `min_receiver_value` | `number` | yes | Minimum per-receiver output value in satoshis |
+| `max_receiver_value` | `number` | yes | Maximum per-receiver output value in satoshis |
+| `max_fee` | `number` | yes | Maximum fee in satoshis |
+
+```typescript
+{
+  type: 'MATCH_ARK_INTENT',
+  operator_pubkey: '03a1b2c3...',
+  exit_delay_seconds: 512,
+  allowed_destinations: ['SIGBASH_ARK_SELF_VTXO', '0014...'],
+  min_receiver_value: 1000,
+  max_receiver_value: 500_000,
+  max_fee: 5000,
+}
+```
+
+#### `MATCH_ARK_CHECKPOINT`
+
+Validates a self-send Ark checkpoint PSBT. Verifies the collaborative leaf script-path
+spend, output[0] taptree reconstruction (vtxo forfeit leaf + server-unroll leaf under
+the NUMS internal key), P2A anchor at output[1], and fee cap.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `operator_pubkey` | `string` | yes | 33-byte compressed secp256k1 operator public key (66 hex chars) — used to build the ServerUnrollLeaf |
+| `csv_timeout` | `number` | yes | BIP-68 relative locktime sequence for the ServerUnrollLeaf. Must match the raw sequence from the operator's arkd config |
+| `max_fee` | `number` | yes | Maximum fee in satoshis |
+
+```typescript
+{
+  type: 'MATCH_ARK_CHECKPOINT',
+  operator_pubkey: '03a1b2c3...',
+  csv_timeout: 4194306,  // decoded from arkd getInfo().checkpointTapscript
+  max_fee: 5000,
+}
+```
+
+#### `MATCH_ARK_FORFEIT`
+
+Validates an Ark forfeit transaction. Checks transaction shape, sighash type, output
+destination, and fee cap. Supports both the direct (2-input) and delegated (1-input)
+forfeit flows via the `delegation` selector.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `operator_pubkey` | `string` | yes | 33-byte compressed secp256k1 operator public key (66 hex chars) |
+| `forfeit_script_pubkey` | `string` | yes | Operator-published forfeit output scriptPubKey as hex |
+| `max_fee` | `number` | yes | Maximum fee in satoshis |
+| `delegation` | `string` | no (default `"disallow"`) | Delegated forfeit mode — see table below |
+
+**`delegation` values:**
+
+| Value | Behaviour |
+|---|---|
+| `"disallow"` (default) | 2-input direct forfeit, SIGHASH_DEFAULT only |
+| `"require"` | 1-input delegated forfeit, SIGHASH_ALL\|ANYONECANPAY (`0x81`) |
+| `"allow"` | Accept either shape |
+
+Note: `0x81` (SIGHASH_ALL|ANYONECANPAY) still commits to all outputs — output-destination
+policing is fully preserved in the delegated flow.
+
+```typescript
+// Default: direct forfeit only
+{
+  type: 'MATCH_ARK_FORFEIT',
+  operator_pubkey: '03a1b2c3...',
+  forfeit_script_pubkey: '0014...',
+  max_fee: 5000,
+}
+
+// Accept both direct and delegated
+{
+  type: 'MATCH_ARK_FORFEIT',
+  operator_pubkey: '03a1b2c3...',
+  forfeit_script_pubkey: '0014...',
+  max_fee: 5000,
+  delegation: 'allow',
+}
+
+// Delegated only (ANYONECANPAY)
+{
+  type: 'MATCH_ARK_FORFEIT',
+  operator_pubkey: '03a1b2c3...',
+  forfeit_script_pubkey: '0014...',
+  max_fee: 5000,
+  delegation: 'require',
+}
+```
+
+#### `MATCH_ARK_COLLABORATIVE_EXIT`
+
+Validates an Ark collaborative exit (offboard) transaction. Checks validity window,
+operator binding, output destination, exit value bounds, and fee cap.
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `operator_pubkey` | `string` | yes | 33-byte compressed secp256k1 operator public key (66 hex chars) |
+| `allowed_destinations` | `string[]` | yes | Allow-list of onchain scriptPubKey hex strings for exit destinations |
+| `min_exit_value` | `number` | yes | Minimum exit output value in satoshis |
+| `max_exit_value` | `number` | yes | Maximum exit output value in satoshis |
+| `max_fee` | `number` | yes | Maximum fee in satoshis |
+
+```typescript
+{
+  type: 'MATCH_ARK_COLLABORATIVE_EXIT',
+  operator_pubkey: '03a1b2c3...',
+  allowed_destinations: ['0014beefcafe...'],
+  min_exit_value: 1000,
+  max_exit_value: 100_000,
+  max_fee: 5000,
 }
 ```
 

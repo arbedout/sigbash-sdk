@@ -398,7 +398,7 @@ describe('createKey — live server', () => {
 
   beforeAll(async () => {
     if (!liveServerAvailable) return;
-    // createKey() requires WASM since T45.
+    // createKey() requires WASM since .
     // Load it once here; all subsequent describe blocks share globalThis WASM state.
     if (!isWasmReady()) {
       if (!WASM_LOAD_URL) throw new Error('No WASM source: set SIGBASH_TEST_SERVER_URL');

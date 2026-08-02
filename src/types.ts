@@ -372,11 +372,9 @@ export interface SignPSBTOptions {
    * as the 7th argument (args[6]) of SigbashWASM_SignPSBTBlind.
    *
    * `registerMessageJson` is the JSON-encoded Arkade operator register message.
-   * `vtxoTaprootTrees` is the per-input array of tapscript branch paths.
    */
   arkadeIntentContext?: {
     registerMessageJson: string;
-    vtxoTaprootTrees: string[][];
   };
   /**
    * When true, the WASM will populate `FinalScriptWitness` on all signed

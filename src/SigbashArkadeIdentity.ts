@@ -39,8 +39,6 @@ export interface ArkadeSignerSession {
 export interface ArkadeContext {
   /** JSON-encoded Ark Labs register message (canonical field order required). */
   registerMessageJson: string;
-  /** Per-input array of tapscript branch paths from the vtxo taptree. */
-  vtxoTaprootTrees: string[][];
 }
 
 // Ark-proprietary VtxoTaprootTree PSBT unknown field key: 0xDE + "taptree".
@@ -106,7 +104,7 @@ function isPolicyOutcomeMessage(message: string): boolean {
  * For intent / collaborative-exit flows, inject context before calling the
  * wallet operation:
  * ```typescript
- * await identity.setArkadeContext({ registerMessageJson, vtxoTaprootTrees });
+ * await identity.setArkadeContext({ registerMessageJson });
  * await wallet.send({ address: destination, amount: 50_000n });
  * // Context is automatically cleared after sign() returns.
  * ```

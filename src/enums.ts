@@ -56,3 +56,33 @@ export const SCRIPT_TYPES = {
 } as const;
 
 export type ScriptType = keyof typeof SCRIPT_TYPES;
+
+/**
+ * Valid delegation mode strings for `MATCH_ARK_FORFEIT` conditions.
+ *
+ * Controls whether the delegated (ANYONECANPAY) forfeit flow is permitted
+ * alongside or instead of the standard 2-input SIGHASH_DEFAULT flow.
+ *
+ * @example
+ * ```typescript
+ * import { FORFEIT_DELEGATION } from '@sigbash/sdk';
+ *
+ * const condition = {
+ *   type: 'MATCH_ARK_FORFEIT',
+ *   operator_pubkey: '03...',
+ *   forfeit_script_pubkey: '0014...',
+ *   max_fee: 1000,
+ *   delegation: FORFEIT_DELEGATION.ALLOW,
+ * };
+ * ```
+ */
+export const FORFEIT_DELEGATION = {
+  /** Default — direct 2-input SIGHASH_DEFAULT forfeit only. */
+  DISALLOW: 'disallow',
+  /** Accept both direct (SIGHASH_DEFAULT) and delegated (SIGHASH_ALL|ANYONECANPAY). */
+  ALLOW: 'allow',
+  /** Delegated 1-input SIGHASH_ALL|ANYONECANPAY forfeit only. */
+  REQUIRE: 'require',
+} as const;
+
+export type ForfeitDelegation = typeof FORFEIT_DELEGATION[keyof typeof FORFEIT_DELEGATION];

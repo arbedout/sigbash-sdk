@@ -133,10 +133,9 @@ const policy = conditionConfigToPoetPolicy({
   conditions: [
     {
       type: 'MATCH_ARK_INTENT',
-      // The operator's 33-byte compressed pubkey — verified in every vtxo taptree the wallet builds.
+      // The operator's 33-byte compressed pubkey. Used to derive the
+      // SIGBASH_ARK_SELF_VTXO destination when that sentinel is present below.
       operator_pubkey: OPERATOR_PUBKEY,
-      // How long a RegisterMessage stays valid (seconds). Match the operator's window.
-      max_validity_duration_secs: 7200,
       // Output destinations this key may pay. SIGBASH_ARK_SELF_VTXO resolves at
       // signing time to the signer's own change vtxo (requires exit_delay_seconds).
       // Add the scriptPubKey hex of any additional permitted recipients.
@@ -169,7 +168,6 @@ const policy = conditionConfigToPoetPolicy({
     {
       type: 'MATCH_ARK_COLLABORATIVE_EXIT',
       operator_pubkey: OPERATOR_PUBKEY,
-      max_validity_duration_secs: 7200,
       // Permitted onchain exit destinations as scriptPubKey hex strings.
       // These are the addresses the user may exit to.
       allowed_destinations: ['5120...your_onchain_destination_scriptpubkey_hex...'],
@@ -265,16 +263,10 @@ const wallet = await Wallet.create({
 
 ## Step 5: Sign with context
 
-For `MATCH_ARK_INTENT` and `MATCH_ARK_COLLABORATIVE_EXIT`, the WASM evaluator
-requires a `RegisterMessage` from the operator and the vtxo taptree paths of the inputs
-being spent. Inject this before each wallet operation:
+For `MATCH_ARK_INTENT` and `MATCH_ARK_COLLABORATIVE_EXIT`, the WASM requires a
+`RegisterMessage` from the operator. Inject this before each wallet operation:
 
 ```typescript
-// Retrieve the vtxos the wallet will spend.
-const vtxos = await wallet.getVtxos();
-
-// Build the context. vtxoTaprootTrees is a per-input array of tapscript leaf
-// hex strings (the intent/exit branch of each vtxo's taptree).
 await identity.setArkadeContext({
   // The JSON-encoded RegisterMessage returned by the operator during send/exit setup.
   // In the ts-sdk this is produced internally; expose it via the Intent API or
@@ -286,10 +278,6 @@ await identity.setArkadeContext({
     expire_at: Math.floor(Date.now() / 1000) + 3600,
     cosigners_public_keys: [OPERATOR_PUBKEY],  // 33-byte compressed pubkey hex (same as operator_pubkey above)
   }),
-  // One entry per input: the raw tapscript bytes (no version suffix) as hex.
-  vtxoTaprootTrees: vtxos.map(v =>
-    [Buffer.from(v.intentTapLeafScript[1].subarray(0, v.intentTapLeafScript[1].length - 1)).toString('hex')]
-  ),
 });
 
 // Now send. The identity signs the intent spend (consuming the context) and
@@ -312,8 +300,7 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's pubkey. Verified against every vtxo taptree. |
-| `max_validity_duration_secs` | number | yes | Maximum age of a RegisterMessage in seconds. |
+| `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's pubkey. Used to derive the `SIGBASH_ARK_SELF_VTXO` destination. |
 | `allowed_destinations` | string[] | yes | scriptPubKey hex strings of permitted outputs. `SIGBASH_ARK_SELF_VTXO` resolves to the signer's own vtxo change output. |
 | `exit_delay_seconds` | number | if `SIGBASH_ARK_SELF_VTXO` in destinations | The operator's vtxo exit delay in seconds; used to derive the self-vtxo scriptPubKey. |
 | `min_receiver_value` | number | yes | Minimum sats for any non-self vtxo output. |
@@ -340,7 +327,6 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operator_pubkey` | string (compressed pubkey hex, 66 chars) | yes | The operator's pubkey. |
-| `max_validity_duration_secs` | number | yes | Maximum age of the exit RegisterMessage in seconds. |
 | `allowed_destinations` | string[] | yes | Permitted onchain exit destinations as scriptPubKey hex strings. |
 | `min_exit_value` | number | yes | Minimum total exit value in sats. |
 | `max_exit_value` | number | yes | Maximum total exit value in sats. |
@@ -353,7 +339,6 @@ RegisterMessage and supply the exit vtxo's `forfeitTapLeafScript` instead.
 |---|---|
 | Policy not satisfied — no intent context | `setArkadeContext()` was not called before `wallet.send()`. |
 | Policy not satisfied — output destination not allowed | A vtxo output scriptPubKey is not in `allowed_destinations`. Add the destination or use `SIGBASH_ARK_SELF_VTXO` for change. |
-| Policy not satisfied — operator key not found in vtxo taptree | `operator_pubkey` does not match the key present in the vtxo's tapscript leaves. Verify against `/v1/info`. |
 | Policy not satisfied — receiver value out of range | A vtxo output is outside `[min_receiver_value, max_receiver_value]`. Widen the bounds or check the amount. |
 | Policy not satisfied — csv_timeout mismatch | `csv_timeout` does not match the sequence in the checkpoint output taptree. Redecode from `checkpointTapscript`. |
 | Policy not satisfied — no forfeit script match | `forfeit_script_pubkey` does not match the forfeit output. Re-derive from `forfeitAddress`. |

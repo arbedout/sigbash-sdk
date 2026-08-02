@@ -61,8 +61,8 @@ export { SigbashSocket } from './socket';
 export { generateTOTPSecret, buildTOTPUri } from './totp';
 
 // Enums — exported string constants for condition params
-export { SIGHASH_TYPES, SCRIPT_TYPES } from './enums';
-export type { SighashType, ScriptType } from './enums';
+export { SIGHASH_TYPES, SCRIPT_TYPES, FORFEIT_DELEGATION } from './enums';
+export type { SighashType, ScriptType, ForfeitDelegation } from './enums';
 
 // Condition type catalog — machine-readable reference for all 25 condition types
 export { CONDITION_TYPES } from './conditions';

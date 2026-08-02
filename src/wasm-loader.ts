@@ -378,6 +378,21 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
   // Run Go program (non-blocking)
   go.run(instance);
 
+  // Prefetch the unified + output-chunk-final circuit HEADER companions on
+  // this main-thread WASM instance now, well ahead of any sign call — the
+  // header cache is only ever read on the main thread
+  // (SignWithLongfellow_PrepareWitness), never inside a spawned Worker, so
+  // this must NOT be duplicated in prove-worker-manager.ts's worker init.
+  // Without this, the ~1-1.6s header fetch+parse is absorbed synchronously
+  // inside the sign call instead of being hidden behind whatever the caller
+  // does between loadWasm() and signPSBT().
+  const prefetchHeadersFn = (globalThis as Record<string, unknown>)[
+    'SigbashWASM_PrefetchCircuitHeaders'
+  ] as (() => void) | undefined;
+  if (typeof prefetchHeadersFn === 'function') {
+    prefetchHeadersFn();
+  }
+
   // Store the WASM URL on globalThis so workers can locate the binary.
   (globalThis as Record<string, unknown>)['_sigbashWasmUrl'] = wasmUrl;
   // Also stash the verified SHA-384 hash so each spawned worker can
