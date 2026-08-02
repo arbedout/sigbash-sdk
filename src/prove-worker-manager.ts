@@ -43,7 +43,7 @@ export interface ProveWorkerManager {
   init(): Promise<void>;
   proveAsync(request: ProveRequest): Promise<Uint8Array>;
   witnessAndProveAsync(request: WitnessAndProveRequest): Promise<Uint8Array>;
-  warmCircuits(): void;
+  warmCircuits(count?: number): void;
   destroy(): void;
   getStatus(): ProveWorkerManagerStatus;
 }
@@ -63,6 +63,11 @@ interface WorkerWrapper {
   worker: Worker | /* node worker_threads.Worker */ any;
   busy: boolean;
   isWarmed: boolean;
+  // Circuit role this worker is warmed for ('unified' | 'output_chunk_final' |
+  // 'all' for a poolSize-1 pool that must handle both). Assigned once at
+  // pool init (see _doInit) and passed through to WarmCircuits_WASM so each
+  // worker only loads the one circuit it will actually be asked to prove.
+  role: 'unified' | 'output_chunk_final' | 'all';
 }
 
 // Timeout for a single proof task (ms).
@@ -171,18 +176,44 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
     });
   }
 
+  // A single signing call dispatches at most a small, bounded number of
+  // concurrent proofs (one unified-circuit proof plus a couple of output-
+  // chunk proofs) — _dispatch() always picks the first idle worker in array
+  // order, so warming beyond this count pre-warms workers this call has no
+  // chance of actually using. Each warmed worker holds its ~1-1.5GB peak
+  // forever (Go/WASM heap never shrinks), so broadcasting to the whole pool
+  // on every signPSBT() call — as this used to do — meant the pool's total
+  // footprint climbed toward poolSize * peak over a session regardless of
+  // how many workers a given call actually needed.
+  private static readonly DEFAULT_WARM_COUNT = 2;
+
   /**
-   * Tell all workers to prefetch and cache circuit binaries.  Fire-and-forget —
-   * workers that aren't ready yet will ignore the message.  Must be called
-   * after sigbashBaseUrl is set on globalThis so the circuit fetch resolves.
+   * Tell up to `count` not-yet-warmed workers to prefetch and cache circuit
+   * binaries. Fire-and-forget — workers that aren't ready yet will ignore
+   * the message. Must be called after sigbashBaseUrl is set on globalThis so
+   * the circuit fetch resolves. Defaults to warming only as many workers as
+   * a single signing call can realistically use concurrently, rather than
+   * the entire pool — see DEFAULT_WARM_COUNT above.
    */
-  warmCircuits(): void {
+  warmCircuits(count: number = ProveWorkerManagerImpl.DEFAULT_WARM_COUNT): void {
     const g = globalThis as Record<string, unknown>;
     const baseUrl = (g['sigbashBaseUrl'] as string) || '';
+    // The 'unified' worker (worker[0], see _doInit's role assignment) is
+    // always warmed regardless of `count` — the unified circuit's on-demand
+    // build cost hurts the most, so its dedicated worker should never be
+    // left cold.
+    const toWarm = new Set<WorkerWrapper>();
+    if (this._workers.length > 0 && !this._workers[0].isWarmed) {
+      toWarm.add(this._workers[0]);
+    }
     for (const w of this._workers) {
+      if (toWarm.size >= count) break;
       if (w.isWarmed) continue; // Item 2: skip workers that already have circuits cached.
+      toWarm.add(w);
+    }
+    for (const w of toWarm) {
       try {
-        w.worker.postMessage({ type: 'warm_circuits', sigbashBaseUrl: baseUrl });
+        w.worker.postMessage({ type: 'warm_circuits', sigbashBaseUrl: baseUrl, role: w.role });
       } catch {
         // Ignore — worker may not be ready.
       }
@@ -244,6 +275,19 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
         this._fallbackMode = true;
       } else {
         this._workers = workers;
+        // Role-assignment policy: a poolSize-1 pool has a single worker that
+        // must handle both circuit types ('all'). Otherwise, dedicate
+        // worker[0] to 'unified' (at most one concurrent unified proof per
+        // signing call, so one dedicated worker suffices) and the rest to
+        // 'output_chunk_final' (which any output-chunk proof can share).
+        if (this._workers.length === 1) {
+          this._workers[0].role = 'all';
+        } else {
+          this._workers[0].role = 'unified';
+          for (let i = 1; i < this._workers.length; i++) {
+            this._workers[i].role = 'output_chunk_final';
+          }
+        }
         // Item 2: attach a persistent listener for warm_complete on each worker.
         for (const w of this._workers) {
           this._attachWarmCompleteListener(w);
@@ -282,10 +326,29 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
     }
   }
 
+  // Each worker's real peak heap during a heavy prove, measured directly
+  // this session via lfHeapSnapshot on reqkey01-multisig-basic.spec.js
+  // (output-chunk + unified proves observed up to ~1.2-1.3GB HeapAlloc per
+  // worker after the corner-count fixes). The prior "~50MB peak"
+  // comment this replaced was off by ~20-25x — on an 8+-core machine that
+  // let _computePoolSize spawn enough workers to exceed typical container
+  // memory limits regardless of how tightly any single circuit build is
+  // sized, since Go/WASM's heap never shrinks and every worker that's ever
+  // used holds its peak forever.
+  private static readonly PER_WORKER_PEAK_BYTES = 1.5 * 1024 * 1024 * 1024;
+  // Leave half of detected/assumed memory for the OS, main thread, and
+  // everything else running alongside the pool.
+  private static readonly MEMORY_BUDGET_FRACTION = 0.5;
+
   /**
-   * Determine pool size.  Leave 2 cores free for the main thread and OS;
-   * floor at 2 so single-core-detected environments still get parallelism.
-   * Each worker loads a full WASM instance (~50MB peak during prove).
+   * Determine pool size, bounded by two independent constraints:
+   *   - CPU: leave 2 cores free for the main thread and OS.
+   *   - Memory: cap the pool so its worst-case simultaneous footprint
+   *     (poolSize * PER_WORKER_PEAK_BYTES) stays within a conservative
+   *     fraction of available memory. Unlike the CPU bound, this is NOT
+   *     floored at 2 — in a genuinely memory-constrained environment,
+   *     forcing extra parallelism would recreate the OOM this is meant to
+   *     prevent.
    */
   private _computePoolSize(): number {
     try {
@@ -294,7 +357,20 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
         const cores = typeof navigator !== 'undefined'
           ? (navigator.hardwareConcurrency || 4)
           : 4;
-        return Math.max(2, cores - 2);
+        const cpuBound = Math.max(2, cores - 2);
+
+        // navigator.deviceMemory (Chrome-family only) gives an approximate
+        // device RAM figure in GB. No reliable equivalent exists in
+        // Firefox/Safari — fall back to a conservative fixed 4GB assumption
+        // there rather than skipping the memory bound entirely.
+        const deviceMemoryGB = typeof navigator !== 'undefined'
+          ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+          : undefined;
+        const totalBytes = (deviceMemoryGB || 4) * 1024 * 1024 * 1024;
+        const memBound = Math.max(1, Math.floor(
+          (totalBytes * ProveWorkerManagerImpl.MEMORY_BUDGET_FRACTION) / ProveWorkerManagerImpl.PER_WORKER_PEAK_BYTES
+        ));
+        return Math.min(cpuBound, memBound);
       }
 
       if (this._env === 'node') {
@@ -302,7 +378,12 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
           // eslint-disable-next-line @typescript-eslint/no-var-requires
           const os = require('os');
           const cpus: unknown[] = os.cpus();
-          return Math.max(2, (cpus.length || 4) - 2);
+          const cpuBound = Math.max(2, (cpus.length || 4) - 2);
+          const totalBytes: number = os.totalmem();
+          const memBound = Math.max(1, Math.floor(
+            (totalBytes * ProveWorkerManagerImpl.MEMORY_BUDGET_FRACTION) / ProveWorkerManagerImpl.PER_WORKER_PEAK_BYTES
+          ));
+          return Math.min(cpuBound, memBound);
         } catch {
           return 2;
         }
@@ -373,7 +454,7 @@ self.onmessage = function(e) {
   if (msg.type === 'warm_circuits') {
     if (msg.sigbashBaseUrl) { self.sigbashBaseUrl = msg.sigbashBaseUrl; }
     if (wasmReady && typeof self.SigbashWASM_WarmCircuits === 'function') {
-      self.SigbashWASM_WarmCircuits().then(function() {
+      self.SigbashWASM_WarmCircuits(msg.role || 'all').then(function() {
         self.postMessage({ type: 'warm_complete' });
       }).catch(function() {});
     }
@@ -493,7 +574,7 @@ async function handleWitnessAndProve(msg) {
             settled = true;
             cleanup();
             URL.revokeObjectURL(url); // Release Blob URL to avoid memory leak
-            resolve({ worker, busy: false, isWarmed: false });
+            resolve({ worker, busy: false, isWarmed: false, role: 'all' });
           } else if (ev.data.type === 'init_error') {
             settled = true;
             cleanup();
@@ -564,7 +645,7 @@ parentPort.on("message", function(msg) {
       global.sigbashBaseUrl = msg.sigbashBaseUrl;
     }
     if (wasmReady && typeof global.SigbashWASM_WarmCircuits === "function") {
-      global.SigbashWASM_WarmCircuits().then(function() {
+      global.SigbashWASM_WarmCircuits(msg.role || "all").then(function() {
         parentPort.postMessage({ type: "warm_complete" });
       }).catch(function() {});
     }
@@ -723,7 +804,7 @@ async function handleWitnessAndProve(msg) {
           if (msg.type === 'ready') {
             settled = true;
             cleanup();
-            resolve({ worker, busy: false, isWarmed: false });
+            resolve({ worker, busy: false, isWarmed: false, role: 'all' });
           } else if (msg.type === 'init_error') {
             settled = true;
             cleanup();
@@ -766,25 +847,47 @@ async function handleWitnessAndProve(msg) {
    * Try to assign queued tasks to idle workers.
    */
   private _dispatch(): void {
-    while (this._queue.length > 0 || this._wapQueue.length > 0) {
-      const idleWorker = this._workers.find(w => !w.busy);
-      if (!idleWorker) break;
-
-      // Drain prove tasks first, then witness+prove tasks.
-      if (this._queue.length > 0) {
-        const item = this._queue.shift()!;
-        const task = this._pending.get(item.id);
-        if (!task) continue; // Already timed out.
-        idleWorker.busy = true;
-        this._sendToWorker(idleWorker, item.id, item.request);
-      } else if (this._wapQueue.length > 0) {
-        const item = this._wapQueue.shift()!;
-        const task = this._pending.get(item.id);
-        if (!task) continue;
-        idleWorker.busy = true;
-        this._sendWitnessAndProveToWorker(idleWorker, item.id, item.request);
-      }
+    // Role-aware: since each worker is warmed for only one circuit type
+    // (see _doInit's role assignment), sending a request to a
+    // role-mismatched worker forces it to pay a full on-demand fetch of the
+    // circuit it actually needs while its warm was wasted. Prefer a
+    // role-matched idle worker; fall back to any idle worker only when no
+    // match is available (never block waiting for a perfect match).
+    while (this._queue.length > 0) {
+      const item = this._queue[0];
+      const worker = this._pickWorkerForRole(item.request.circuitType);
+      if (!worker) break;
+      this._queue.shift();
+      const task = this._pending.get(item.id);
+      if (!task) continue; // Already timed out.
+      worker.busy = true;
+      this._sendToWorker(worker, item.id, item.request);
     }
+    while (this._wapQueue.length > 0) {
+      const item = this._wapQueue[0];
+      const worker = this._pickWorkerForRole(item.request.circuitType);
+      if (!worker) break;
+      this._wapQueue.shift();
+      const task = this._pending.get(item.id);
+      if (!task) continue;
+      worker.busy = true;
+      this._sendWitnessAndProveToWorker(worker, item.id, item.request);
+    }
+  }
+
+  /**
+   * Pick an idle worker for the given circuit type, preferring one whose
+   * warmed role matches (or a poolSize-1 'all' worker) over a mismatched
+   * one.
+   */
+  private _pickWorkerForRole(
+    circuitType: 'unified' | 'output_chunk' | 'output_chunk_final'
+  ): WorkerWrapper | undefined {
+    const desiredRole: 'unified' | 'output_chunk_final' =
+      circuitType === 'unified' ? 'unified' : 'output_chunk_final';
+    const matched = this._workers.find(w => !w.busy && (w.role === desiredRole || w.role === 'all'));
+    if (matched) return matched;
+    return this._workers.find(w => !w.busy);
   }
 
   private _sendToWorker(wrapper: WorkerWrapper, id: number, request: ProveRequest): void {
