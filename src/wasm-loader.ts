@@ -4,7 +4,6 @@
  * Features: Environment detection, integrity verification, cross-platform loading
  */
 
-import { getProveWorkerManager } from './prove-worker-manager';
 export type { ProveWorkerManager, ProveRequest, ProveWorkerManagerStatus } from './prove-worker-manager';
 export { getProveWorkerManager } from './prove-worker-manager';
 
@@ -19,6 +18,18 @@ export interface WasmLoaderOptions {
   wasmUrl: string;
   expectedHash?: string;
   onProgress?: (progress: number, stage: string) => void;
+  // Optional base URL for the circuit/API server (e.g. the same origin
+  // SigbashClient will be constructed with). When provided, this is set on
+  // globalThis.sigbashBaseUrl BEFORE the circuit-header prefetch below runs,
+  // so that prefetch can actually resolve an absolute URL instead of racing
+  // against SigbashClient's construction (which only sets sigbashBaseUrl
+  // later, and only for the scoped duration of a signPSBT()/verifyPSBT()
+  // call — see SigbashClient.ts). Without this, in Node/SDK usage (no
+  // window.location.origin fallback), the prefetch always fires before any
+  // base URL exists and silently falls all the way through to the full
+  // circuit accessor on every load. Browser usage is unaffected either way
+  // (getAPIBaseURL() falls back to window.location.origin there).
+  sigbashBaseUrl?: string;
 }
 
 /**
@@ -316,7 +327,7 @@ async function initializeGoRuntime(env: Environment): Promise<any> {
  * Load and instantiate WASM module
  */
 export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderResult> {
-  const { wasmUrl, expectedHash, onProgress } = options;
+  const { wasmUrl, expectedHash, onProgress, sigbashBaseUrl } = options;
 
   onProgress?.(0, 'Detecting environment...');
   const env = detectEnvironment();
@@ -378,6 +389,14 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
   // Run Go program (non-blocking)
   go.run(instance);
 
+  // Set sigbashBaseUrl BEFORE the prefetch below so it can resolve an
+  // absolute URL. Only set if the caller actually provided one — do not
+  // clobber a value SigbashClient may already have scoped in (unlikely at
+  // this point, but this must never override an active sign call's base URL).
+  if (sigbashBaseUrl && !(globalThis as Record<string, unknown>)['sigbashBaseUrl']) {
+    (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = sigbashBaseUrl.replace(/\/$/, '');
+  }
+
   // Prefetch the unified + output-chunk-final circuit HEADER companions on
   // this main-thread WASM instance now, well ahead of any sign call — the
   // header cache is only ever read on the main thread
@@ -385,7 +404,11 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
   // this must NOT be duplicated in prove-worker-manager.ts's worker init.
   // Without this, the ~1-1.6s header fetch+parse is absorbed synchronously
   // inside the sign call instead of being hidden behind whatever the caller
-  // does between loadWasm() and signPSBT().
+  // does between loadWasm() and signPSBT(). Requires sigbashBaseUrl (set
+  // above, or already present from window.location.origin in a browser) —
+  // in Node/SDK usage with no sigbashBaseUrl option supplied, this prefetch
+  // still fires but will fail fast (no base URL to resolve against) and
+  // fall through harmlessly to the same on-demand path used before Fix A.
   const prefetchHeadersFn = (globalThis as Record<string, unknown>)[
     'SigbashWASM_PrefetchCircuitHeaders'
   ] as (() => void) | undefined;
@@ -411,13 +434,15 @@ export async function loadWasm(options: WasmLoaderOptions): Promise<WasmLoaderRe
     crypto.subtle.digest('SHA-256', new Uint8Array(0)).catch(() => {});
   }
 
-  // Eagerly initialize the worker pool in the background.
-  // Don't await — let workers load while the main thread continues.
-  // Failures are silently swallowed; the manager falls back to main-thread proving.
-  getProveWorkerManager().init().catch(() => {
-    // Intentionally ignored — fallback mode will activate.
-  });
-
+  // Worker pool initialization is intentionally NOT started here. It used to
+  // fire unconditionally at load time for every SDK consumer, which directly
+  // contradicted SigbashClient.prewarm()'s own contract ("Not called
+  // automatically at SDK load time... call it only when signing is actually
+  // anticipated") and spawned a full worker (each loading its own WASM copy)
+  // before sigbashBaseUrl exists for callers that don't pass the option
+  // above. signPSBT() already calls workerMgr.init() itself when a sign is
+  // actually happening, and prewarm() remains the documented opt-in early-
+  // start hook — both are the correct places for this, not every load.
   onProgress?.(100, 'WASM loaded successfully');
 
   return {

@@ -1212,7 +1212,13 @@ export class SigbashClient {
     //   can construct absolute URLs without touching window.location.
     // • Wrap globalThis.fetch to prepend the server origin for any remaining
     //   relative-path fetch calls.
-    // Both are restored in the finally block.
+    // Both are restored in the finally block. sigbashBaseUrl is restored to
+    // whatever it was before this call (not unconditionally deleted) — a
+    // caller may have persistently set it via loadWasm({ sigbashBaseUrl })
+    // so the circuit-header prefetch can resolve ahead of any sign call;
+    // wiping that out after the first signPSBT() would silently break every
+    // subsequent prefetch for the rest of the session.
+    const priorSigbashBaseUrl = (globalThis as Record<string, unknown>)['sigbashBaseUrl'] as string | undefined;
     const serverBase = this._serverUrl.replace(/\/$/, '');
     (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = serverBase;
     const baseFetch = (globalThis as Record<string, unknown>)['fetch'] as typeof fetch;
@@ -1380,7 +1386,11 @@ export class SigbashClient {
       throw new SigbashSDKError(`SigbashWASM_SignPSBTBlind failed: ${errMsg}`, 'WASM_ERROR');
     } finally {
       (globalThis as Record<string, unknown>)['fetch'] = baseFetch;
-      delete (globalThis as Record<string, unknown>)['sigbashBaseUrl'];
+      if (priorSigbashBaseUrl !== undefined) {
+        (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = priorSigbashBaseUrl;
+      } else {
+        delete (globalThis as Record<string, unknown>)['sigbashBaseUrl'];
+      }
       delete (globalThis as Record<string, unknown>)['sigbashPreFetchedCovenantState'];
       delete (globalThis as Record<string, unknown>)['_sigbashProveAsync'];
       delete (globalThis as Record<string, unknown>)['_sigbashWitnessAndProveAsync'];
@@ -1556,6 +1566,8 @@ export class SigbashClient {
     // The WASM fetches /api/v2/signing_key (relative URL) for the server
     // timestamp needed by nullifier epoch derivation.  In Node.js there is no
     // base URL, so wrap globalThis.fetch exactly as signPSBT does.
+    // sigbashBaseUrl restore (not delete) mirrors signPSBT — see its comment.
+    const priorSigbashBaseUrl = (globalThis as Record<string, unknown>)['sigbashBaseUrl'] as string | undefined;
     const serverBase = this._serverUrl.replace(/\/$/, '');
     (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = serverBase;
     const baseFetch = (globalThis as Record<string, unknown>)['fetch'] as typeof fetch;
@@ -1583,7 +1595,11 @@ export class SigbashClient {
       );
     } finally {
       (globalThis as Record<string, unknown>)['fetch'] = baseFetch;
-      delete (globalThis as Record<string, unknown>)['sigbashBaseUrl'];
+      if (priorSigbashBaseUrl !== undefined) {
+        (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = priorSigbashBaseUrl;
+      } else {
+        delete (globalThis as Record<string, unknown>)['sigbashBaseUrl'];
+      }
     }
 
     const passed = result.success ?? result.passed ?? false;
