@@ -25,7 +25,7 @@ export interface ProveRequest {
 }
 
 export interface WitnessAndProveRequest {
-  circuitType: 'output_chunk' | 'output_chunk_final';
+  circuitType: 'unified' | 'output_chunk' | 'output_chunk_final';
   witnessInputsJSON: string;
   paramsJSON: string;
   policyRoot: string;
@@ -435,6 +435,9 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
 // Browser prove-worker inline script.
 let wasmReady = false;
 const pending = [];
+// TEMP debug instrumentation for multi-input sumcheck investigation
+// (see multi-input.md). Safe to revert once root cause is found.
+let pendingDebugMode = false;
 
 self.onmessage = function(e) {
   const msg = e.data;
@@ -539,9 +542,11 @@ async function handleProve(msg) {
 
 async function handleWitnessAndProve(msg) {
   try {
-    var fn = self.SigbashWASM_WitnessAndProveOutputChunk;
+    var fn = msg.circuitType === 'unified'
+      ? self.SigbashWASM_WitnessAndProveUnified
+      : self.SigbashWASM_WitnessAndProveOutputChunk;
     if (typeof fn !== 'function') {
-      self.postMessage({ type: 'prove_error', id: msg.id, error: 'SigbashWASM_WitnessAndProveOutputChunk not available' });
+      self.postMessage({ type: 'prove_error', id: msg.id, error: 'witness+prove WASM export not available for circuitType ' + msg.circuitType });
       return;
     }
     var result = await fn(
@@ -640,6 +645,16 @@ let wasmReady = false;
 const pending = [];
 
 parentPort.on("message", function(msg) {
+  if (msg.type === "set_debug_mode") {
+    // TEMP debug instrumentation for multi-input sumcheck investigation
+    // (see multi-input.md). Safe to revert once root cause is found.
+    if (wasmReady && typeof global.setDebugMode === "function") {
+      global.setDebugMode(!!msg.enabled);
+    } else {
+      pendingDebugMode = !!msg.enabled;
+    }
+    return;
+  }
   if (msg.type === "warm_circuits") {
     if (msg.sigbashBaseUrl && !global.sigbashBaseUrl) {
       global.sigbashBaseUrl = msg.sigbashBaseUrl;
@@ -707,6 +722,13 @@ parentPort.on("message", function(msg) {
       await crypto.subtle.digest("SHA-256", new Uint8Array(0));
     }
     wasmReady = true;
+    // TEMP debug instrumentation for multi-input sumcheck investigation
+    // (see multi-input.md). Safe to revert once root cause is found.
+    if (workerData.debugEnabled || pendingDebugMode) {
+      if (typeof global.setDebugMode === "function") global.setDebugMode(true);
+      if (typeof global.setTimingEnabled === "function") global.setTimingEnabled(true);
+      if (typeof global.setHeavyDebugEnabled === "function") global.setHeavyDebugEnabled(true);
+    }
     parentPort.postMessage({ type: "ready" });
     while (pending.length > 0) {
       var p = pending.shift();
@@ -751,9 +773,11 @@ async function handleWitnessAndProve(msg) {
     if (msg.sigbashBaseUrl && !global.sigbashBaseUrl) {
       global.sigbashBaseUrl = msg.sigbashBaseUrl;
     }
-    var fn = global.SigbashWASM_WitnessAndProveOutputChunk;
+    var fn = msg.circuitType === "unified"
+      ? global.SigbashWASM_WitnessAndProveUnified
+      : global.SigbashWASM_WitnessAndProveOutputChunk;
     if (typeof fn !== "function") {
-      parentPort.postMessage({ type: "prove_error", id: msg.id, error: "SigbashWASM_WitnessAndProveOutputChunk not available" });
+      parentPort.postMessage({ type: "prove_error", id: msg.id, error: "witness+prove WASM export not available for circuitType " + msg.circuitType });
       return;
     }
     var result = await fn(
@@ -790,11 +814,14 @@ async function handleWitnessAndProve(msg) {
 
       const sigbashBaseUrl = (g['sigbashBaseUrl'] as string) || '';
       const expectedHash = (g['_sigbashWasmHash'] as string) || '';
+      // TEMP debug instrumentation for multi-input sumcheck investigation
+      // (see multi-input.md). Safe to revert once root cause is found.
+      const debugEnabled = typeof process !== 'undefined' && !!process.env && process.env.SIGBASH_DEBUG_PROVE === '1';
 
       return new Promise<WorkerWrapper | null>((resolve) => {
         const worker = new NodeWorker(workerCode, {
           eval: true,
-          workerData: { wasmExecPath, wasmPath, sigbashBaseUrl, expectedHash },
+          workerData: { wasmExecPath, wasmPath, sigbashBaseUrl, expectedHash, debugEnabled },
         });
 
         let settled = false;
@@ -1029,10 +1056,13 @@ async function handleWitnessAndProve(msg) {
   }
 
   /**
-   * Fall back to calling SigbashWASM_WitnessAndProveOutputChunk on the main thread.
+   * Fall back to calling SigbashWASM_WitnessAndProveUnified/OutputChunk on the main thread.
    */
   private async _witnessAndProveMainThread(request: WitnessAndProveRequest): Promise<Uint8Array> {
-    const fn = (globalThis as Record<string, unknown>)['SigbashWASM_WitnessAndProveOutputChunk'] as
+    const exportName = request.circuitType === 'unified'
+      ? 'SigbashWASM_WitnessAndProveUnified'
+      : 'SigbashWASM_WitnessAndProveOutputChunk';
+    const fn = (globalThis as Record<string, unknown>)[exportName] as
       | ((
           circuitType: string,
           witnessInputsJSON: string,
@@ -1045,7 +1075,7 @@ async function handleWitnessAndProve(msg) {
 
     if (typeof fn !== 'function') {
       throw new Error(
-        'SigbashWASM_WitnessAndProveOutputChunk not available. ' +
+        `${exportName} not available. ` +
         'Ensure the WASM binary has been loaded via loadWasm().'
       );
     }

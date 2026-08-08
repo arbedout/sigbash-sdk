@@ -1320,7 +1320,7 @@ export class SigbashClient {
         sessionBind: string,
         publicInputsJSON: string,
       ) => workerMgr.witnessAndProveAsync({
-        circuitType: circuitType as 'output_chunk' | 'output_chunk_final',
+        circuitType: circuitType as 'unified' | 'output_chunk' | 'output_chunk_final',
         witnessInputsJSON,
         paramsJSON,
         policyRoot,
