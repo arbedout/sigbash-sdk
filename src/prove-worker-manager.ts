@@ -643,6 +643,9 @@ const { parentPort, workerData } = require("worker_threads");
 
 let wasmReady = false;
 const pending = [];
+// TEMP debug instrumentation for multi-input sumcheck investigation
+// (see multi-input.md). Safe to revert once root cause is found.
+let pendingDebugMode = false;
 
 parentPort.on("message", function(msg) {
   if (msg.type === "set_debug_mode") {
