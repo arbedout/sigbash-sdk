@@ -276,6 +276,90 @@ function _extractPoetJSON(kmc: object): object {
   return {};
 }
 
+/**
+ * `sign_session_finalize`'s `inputs[i].policy_proofs` field is a raw JSON-text
+ * string (Go's `encoding/json` output) carrying one or more `longfellow_proof`
+ * fields whose values are large base64-encoded proof bytes. Signing happens
+ * over this text unchanged (see `signSocketPayload`); this function runs
+ * strictly AFTER signing, splicing those base64 values out into raw
+ * `Uint8Array`s (shipped as native Socket.IO binary attachments) and leaving
+ * behind a `@@BINPROOF:<key>@@` placeholder in the text. Never re-parses or
+ * re-serializes `policy_proofs` — only ever a plain substring replace — so
+ * the server can reverse it with an equally plain substring replace and
+ * reconstruct a byte-identical string to the one that was actually signed,
+ * regardless of any JSON formatting differences between Go and Python.
+ *
+ * `@`, `:`, `_` are not part of the base64 alphabet, so the marker cannot
+ * collide with legitimate proof content. Keys are `<input_index>_<occurrence>`
+ * (occurrence = 0-based index of `longfellow_proof` fields found within that
+ * input's own `policy_proofs` text, in text order) — self-describing and
+ * robust to struct-field reordering, since both sides derive the same key
+ * from the same linear scan of the same string.
+ *
+ * Returns the payload unchanged if there is nothing to splice (no `inputs`
+ * array, or no `longfellow_proof` fields found) — this event is otherwise a
+ * strict superset of what `signSocketPayload` already covers, so an empty
+ * result is always a safe no-op, not a partial/ambiguous state.
+ */
+const LONGFELLOW_PROOF_FIELD_MARKER = '"longfellow_proof":"';
+
+/**
+ * Fast base64 → bytes for large strings. `Uint8Array.from(atob(s), c =>
+ * c.charCodeAt(0))` pays a per-element callback/iterator-protocol cost that
+ * dominates for proof-sized (~800KB) inputs; a plain indexed loop over the
+ * already-decoded binary string is dramatically faster for the same bytes.
+ */
+function _fastBase64ToBytes(base64: string): Uint8Array {
+  const binaryStr = atob(base64);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function _spliceFinalizeBinaryProofs(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const inputs = payload['inputs'];
+  if (!Array.isArray(inputs)) return payload;
+
+  const binaryProofs: Record<string, Uint8Array> = {};
+  const newInputs = inputs.map((rawInput) => {
+    if (rawInput === null || typeof rawInput !== 'object') return rawInput;
+    const inp = rawInput as Record<string, unknown>;
+    const text = inp['policy_proofs'];
+    if (typeof text !== 'string') return inp;
+    const inputIndex = inp['input_index'];
+
+    let out = '';
+    let cursor = 0;
+    let occurrence = 0;
+    for (;;) {
+      const start = text.indexOf(LONGFELLOW_PROOF_FIELD_MARKER, cursor);
+      if (start < 0) {
+        out += text.slice(cursor);
+        break;
+      }
+      const valueStart = start + LONGFELLOW_PROOF_FIELD_MARKER.length;
+      const valueEnd = text.indexOf('"', valueStart);
+      if (valueEnd < 0) {
+        throw new Error('_spliceFinalizeBinaryProofs: unterminated longfellow_proof value');
+      }
+      const base64Value = text.slice(valueStart, valueEnd);
+      const key = `${String(inputIndex)}_${occurrence}`;
+      binaryProofs[key] = _fastBase64ToBytes(base64Value);
+      out += text.slice(cursor, valueStart) + `@@BINPROOF:${key}@@`;
+      cursor = valueEnd;
+      occurrence++;
+    }
+    return { ...inp, policy_proofs: out };
+  });
+
+  if (Object.keys(binaryProofs).length === 0) return payload;
+  return { ...payload, inputs: newInputs, binary_proofs: binaryProofs };
+}
+
 export class SigbashClient {
   private readonly _apiKey: string;
   private readonly _userKey: string;
@@ -1803,6 +1887,7 @@ export class SigbashClient {
     const authHashPromise = this._authHash;
     const popKeyPromise = this._popKey;
     const queueEmit = async (args: unknown[]): Promise<void> => {
+      const _tQueueEmit0 = Date.now();
       try {
         const [eventName, payload, ...rest] = args;
         // Acknowledgement callbacks (typeof === 'function') may appear as the
@@ -1835,8 +1920,32 @@ export class SigbashClient {
         );
         const signedPayload = { ...basePayload, _sigbash_sig: sig.value };
 
-        const newArgs: unknown[] = [eventName, signedPayload, ...restArgs];
+        // Wire-transport-only optimization, applied strictly after signing so
+        // it cannot change what was authenticated. Any failure here falls
+        // back to sending signedPayload as-is (today's behavior), never
+        // blocks the emit — this is a payload-shape transform, not a
+        // correctness-critical step.
+        let outgoingPayload: Record<string, unknown> = signedPayload;
+        if (eventName === 'sign_session_finalize') {
+          try {
+            outgoingPayload = _spliceFinalizeBinaryProofs(signedPayload);
+          } catch (spliceErr) {
+            if (typeof console !== 'undefined') {
+              // eslint-disable-next-line no-console
+              console.warn('[sigbash-sdk] finalize binary-proof splice failed, sending inline:', spliceErr);
+            }
+            outgoingPayload = signedPayload;
+          }
+        }
+
+        const newArgs: unknown[] = [eventName, outgoingPayload, ...restArgs];
         if (ackCb !== undefined) newArgs.push(ackCb);
+        if (typeof console !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[POP_CLIENT] queueEmit(${String(eventName)}) total (sign + originalEmit call): ${Date.now() - _tQueueEmit0}ms`,
+          );
+        }
         originalEmit(...newArgs);
       } catch (err) {
         // If signing fails (e.g. crypto not available), surface a console

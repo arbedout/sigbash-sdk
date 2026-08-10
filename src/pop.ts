@@ -274,15 +274,29 @@ export async function signSocketPayload(
     if (k === '_sigbash_sig') continue;
     sanitised[k] = payload[k];
   }
+  const _tCanon0 = Date.now();
   const canonical = canonicalJSON(sanitised);
+  const _tCanon1 = Date.now();
   const bodyBytes = utf8(canonical);
-  return signRequest({
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[POP_CLIENT] signSocketPayload(${eventName}) canonicalJSON: ${_tCanon1 - _tCanon0}ms (${bodyBytes.length} bytes)`,
+    );
+  }
+  const _tSign0 = Date.now();
+  const signed = await signRequest({
     method,
     path,
     bodyBytes,
     authHash,
     popKey,
   });
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(`[POP_CLIENT] signSocketPayload(${eventName}) signRequest (sha256+ed25519): ${Date.now() - _tSign0}ms`);
+  }
+  return signed;
 }
 
 /**
