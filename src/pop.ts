@@ -300,6 +300,103 @@ export async function signSocketPayload(
 }
 
 /**
+ * Canonical binding string over the POP v2 binary attachments.
+ *
+ * For each key in lexical sort order, emit `<key>:<byteLength>:<sha256hex>`,
+ * joined by `|`. Mirrors the server's `_pop_v2_attachment_binding` exactly.
+ * Keys are stringified input indices (digits only), so the encoding is injective.
+ */
+export function buildAttachmentBindingV2(attachments: Record<string, Uint8Array>): string {
+  const parts: string[] = [];
+  const keys = Object.keys(attachments).sort();
+  for (const key of keys) {
+    const raw = attachments[key];
+    parts.push(`${key}:${raw.length}:${bytesToHex(sha256(raw))}`);
+  }
+  return parts.join('|');
+}
+
+/**
+ * Build the canonical POP v2 transcript bytes (newline-joined, no trailing newline).
+ */
+function buildTranscriptV2(
+  method: string,
+  path: string,
+  envelopeSha256Hex: string,
+  attachmentBinding: string,
+  t: number,
+  n: string,
+  authHash: string,
+): Uint8Array {
+  const text =
+    'SIGBASH-POP-V2\n' +
+    method.toUpperCase() + '\n' +
+    path + '\n' +
+    envelopeSha256Hex + '\n' +
+    attachmentBinding + '\n' +
+    String(t) + '\n' +
+    n + '\n' +
+    authHash;
+  return utf8(text);
+}
+
+/**
+ * Sign a POP v2 Socket.IO event whose large fields travel as binary attachments.
+ *
+ * Unlike `signSocketPayload` (v1), which canonicalizes and hashes the entire payload,
+ * v2 commits to a small `envelope` digest plus a binding of each attachment
+ * (key, byte length, sha256). The attachment bytes ship as native Socket.IO binary
+ * and never pass through JSON canonicalization; the signature still binds them via
+ * their digest and length.
+ *
+ * @param namespace   - Socket.IO namespace (e.g. "/api/v2/musig2")
+ * @param eventName   - Event name (e.g. "sign_session_finalize")
+ * @param envelope    - Signed metadata object (payload minus the binary fields and
+ *                      minus `_sigbash_sig`). NOT mutated.
+ * @param attachments - Map of attachment key (stringified input index) to bytes.
+ * @param authHash    - 64-hex DSHA256(apiKey||userKey).
+ * @param popKey      - The derived PoP keypair.
+ */
+export async function signSocketPayloadV2(
+  namespace: string,
+  eventName: string,
+  envelope: Record<string, unknown>,
+  attachments: Record<string, Uint8Array>,
+  authHash: string,
+  popKey: PopKey,
+): Promise<SignedHeader> {
+  const t = Date.now();
+  const n = generateNonce();
+  const method = 'WS';
+  const path = `${namespace}#${eventName}`;
+
+  const _t0 = Date.now();
+  const envelopeCanonical = canonicalJSON(envelope);
+  const envelopeDigest = bytesToHex(sha256(utf8(envelopeCanonical)));
+  const binding = buildAttachmentBindingV2(attachments);
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[POP_CLIENT] signSocketPayloadV2(${eventName}) envelope+binding: ${Date.now() - _t0}ms ` +
+        `(envelope ${envelopeCanonical.length} bytes, ${Object.keys(attachments).length} attachments)`,
+    );
+  }
+
+  const transcript = buildTranscriptV2(method, path, envelopeDigest, binding, t, n, authHash);
+  const _tSign0 = Date.now();
+  const sig = await ed.signAsync(transcript, popKey.seed);
+  if (typeof console !== 'undefined') {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[POP_CLIENT] signSocketPayloadV2(${eventName}) ed25519 sign: ${Date.now() - _tSign0}ms`,
+    );
+  }
+  const k = popKey.publicKeyHex.slice(0, 8);
+  const value = `t=${t};n=${n};v=2;k=${k};s=${bytesToHex(sig)}`;
+  return { value, t, n };
+}
+
+/**
  * Convenience helper: attach the signature to a payload as `_sigbash_sig`.
  * Returns a new object — does not mutate the input.
  */

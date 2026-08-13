@@ -71,6 +71,7 @@ import {
   popKeyFromSeed,
   signRequest as popSignRequest,
   signSocketPayload,
+  signSocketPayloadV2,
 } from './pop';
 import type { PopKey } from './pop';
 
@@ -358,6 +359,77 @@ function _spliceFinalizeBinaryProofs(
 
   if (Object.keys(binaryProofs).length === 0) return payload;
   return { ...payload, inputs: newInputs, binary_proofs: binaryProofs };
+}
+
+/**
+ * POP v2 container key for the finalize event's binary `policy_proofs` attachments.
+ * Must match the server's `POP_V2_ATTACHMENTS_FIELD`.
+ */
+const POP_V2_ATTACHMENTS_FIELD = 'binary_policy_proofs';
+
+/**
+ * Optional global kill switch: when truthy, the client emits finalize over the
+ * legacy POP v1 path even though v2 is available, so an operator can disable v2
+ * client-side without an SDK downgrade.
+ */
+function _popV2Disabled(): boolean {
+  return Boolean((globalThis as Record<string, unknown>)['sigbashDisablePopV2']);
+}
+
+/**
+ * Prepare a POP v2 emission for `sign_session_finalize`.
+ *
+ * Moves every input's `policy_proofs` field (a raw JSON-text string) into a raw
+ * `Uint8Array` keyed by the stringified `input_index`, to be shipped as a native
+ * Socket.IO binary attachment under `binary_policy_proofs`. Returns the small
+ * `envelope` (the payload with `policy_proofs` removed from each input) together
+ * with the `attachments`, or `null` if the payload does not meet the strict
+ * all-or-nothing v2 preconditions — in which case the caller falls back to the
+ * legacy v1 path.
+ *
+ * Preconditions (any violation returns null): `inputs` is a non-empty array; every
+ * input is an object with a non-negative integer `input_index` and a string
+ * `policy_proofs`; no two inputs share an `input_index`.
+ *
+ * The attachment bytes are the exact UTF-8 encoding of the `policy_proofs` string,
+ * so the server's UTF-8 decode reconstructs a byte-identical string.
+ */
+function _prepareFinalizeV2(
+  payload: Record<string, unknown>,
+): { envelope: Record<string, unknown>; attachments: Record<string, Uint8Array> } | null {
+  const inputs = payload['inputs'];
+  if (!Array.isArray(inputs) || inputs.length === 0) return null;
+
+  const encoder = new TextEncoder();
+  const attachments: Record<string, Uint8Array> = {};
+  const envelopeInputs: Array<Record<string, unknown>> = [];
+  const seen = new Set<number>();
+
+  for (const rawInput of inputs) {
+    if (rawInput === null || typeof rawInput !== 'object' || Array.isArray(rawInput)) return null;
+    const inp = rawInput as Record<string, unknown>;
+    const idx = inp['input_index'];
+    if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0) return null;
+    if (seen.has(idx)) return null;
+    seen.add(idx);
+    const proofs = inp['policy_proofs'];
+    if (typeof proofs !== 'string') return null;
+    attachments[String(idx)] = encoder.encode(proofs);
+    const envelopeInput: Record<string, unknown> = {};
+    for (const k of Object.keys(inp)) {
+      if (k === 'policy_proofs') continue;
+      envelopeInput[k] = inp[k];
+    }
+    envelopeInputs.push(envelopeInput);
+  }
+
+  const envelope: Record<string, unknown> = {};
+  for (const k of Object.keys(payload)) {
+    if (k === 'inputs' || k === '_sigbash_sig' || k === POP_V2_ATTACHMENTS_FIELD) continue;
+    envelope[k] = payload[k];
+  }
+  envelope['inputs'] = envelopeInputs;
+  return { envelope, attachments };
 }
 
 export class SigbashClient {
@@ -1911,6 +1983,51 @@ export class SigbashClient {
         delete basePayload['_sigbash_sig'];
 
         const [authHash, popKey] = await Promise.all([authHashPromise, popKeyPromise]);
+
+        // POP v2 path for sign_session_finalize: move each input's policy_proofs into a
+        // native binary attachment and sign a small envelope plus the attachment binding,
+        // keeping the large proof bytes out of JSON canonicalization entirely. Any
+        // precondition failure or exception falls through to the v1 path below, so this
+        // can never block the emit.
+        if (eventName === 'sign_session_finalize' && !_popV2Disabled()) {
+          try {
+            const v2 = _prepareFinalizeV2(basePayload);
+            if (v2 !== null) {
+              const sigV2 = await signSocketPayloadV2(
+                namespace,
+                eventName as string,
+                v2.envelope,
+                v2.attachments,
+                authHash,
+                popKey,
+              );
+              const v2Payload: Record<string, unknown> = {
+                ...v2.envelope,
+                [POP_V2_ATTACHMENTS_FIELD]: v2.attachments,
+                _sigbash_sig: sigV2.value,
+              };
+              const v2Args: unknown[] = [eventName, v2Payload, ...restArgs];
+              if (ackCb !== undefined) v2Args.push(ackCb);
+              if (typeof console !== 'undefined') {
+                // eslint-disable-next-line no-console
+                console.log(
+                  `[POP_CLIENT] queueEmit(${String(eventName)}) v2 total (sign + originalEmit call): ${Date.now() - _tQueueEmit0}ms`,
+                );
+              }
+              originalEmit(...v2Args);
+              return;
+            }
+          } catch (v2Err) {
+            if (typeof console !== 'undefined') {
+              // eslint-disable-next-line no-console
+              console.warn('[sigbash-sdk] finalize POP v2 prep failed, falling back to v1:', v2Err);
+            }
+          }
+        }
+
+        // POP v1 path: sign the full payload, then (finalize only) splice the large
+        // base64 proofs into binary attachments strictly after signing so the splice can
+        // never change what was authenticated.
         const sig = await signSocketPayload(
           namespace,
           eventName as string,
