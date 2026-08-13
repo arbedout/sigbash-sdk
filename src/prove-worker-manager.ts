@@ -424,6 +424,55 @@ class ProveWorkerManagerImpl implements ProveWorkerManager {
 
   // -- Browser worker -----------------------------------------------------
 
+  /**
+   * Canonical flat-share commitment offload relay (coordinator half).
+   * Workers post flat_share_commit_request during the unified round-1
+   * commit window; the main-thread WASM instance computes both canonical
+   * share commitments (SigbashWASM_CommitCanonicalFlatShares, self-
+   * registered by the Go binary) and replies with the serialized
+   * commitments as a transferable buffer. Any failure — export not loaded,
+   * commit error, worker gone — replies an error, and the worker's Go side
+   * falls back to computing the commitments locally. Attached once per
+   * worker at spawn; the handler outlives individual prove tasks because
+   * requests arrive mid-prove, outside the per-task listener lifetimes.
+   */
+  private _attachFlatShareRelay(worker: Worker | /* node worker_threads.Worker */ any): void {
+    const handler = (ev: MessageEvent | { type?: string; id?: string; values?: Uint8Array }) => {
+      const msg = 'data' in ev ? (ev as MessageEvent).data : ev;
+      if (!msg || msg.type !== 'flat_share_commit_request') return;
+      const reply = (payload: Record<string, unknown>, transfer?: unknown[]) => {
+        try {
+          worker.postMessage(payload, transfer);
+        } catch {
+          // Worker already gone — the prover's rendezvous grace expires
+          // and it computes locally.
+        }
+      };
+      const fn = (globalThis as Record<string, unknown>)['SigbashWASM_CommitCanonicalFlatShares'] as
+        | ((values: Uint8Array) => Promise<Uint8Array>)
+        | undefined;
+      if (typeof fn !== 'function') {
+        reply({ type: 'flat_share_commit_error', id: msg.id, error: 'coordinator export unavailable' });
+        return;
+      }
+      Promise.resolve()
+        .then(() => fn(msg.values!))
+        .then((result) => {
+          const out = new Uint8Array(result);
+          reply({ type: 'flat_share_commit_result', id: msg.id, result: out }, [out.buffer]);
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          reply({ type: 'flat_share_commit_error', id: msg.id, error: message });
+        });
+    };
+    if (typeof worker.addEventListener === 'function') {
+      worker.addEventListener('message', handler);
+    } else if (typeof worker.on === 'function') {
+      worker.on('message', handler);
+    }
+  }
+
   private _spawnBrowserWorker(): Promise<WorkerWrapper | null> {
     return new Promise<WorkerWrapper | null>((resolve) => {
       try {
@@ -439,8 +488,46 @@ const pending = [];
 // (see multi-input.md). Safe to revert once root cause is found.
 let pendingDebugMode = false;
 
+// Canonical flat-share commitment offload relay (worker half). The prover's
+// Go side calls _sigbashCommitCanonicalFlatSharesAsync(Uint8Array) during
+// the unified round-1 commit and expects a Promise resolving to the
+// coordinator-computed commitments (Uint8Array). Requests travel to the
+// main thread as transferable messages; replies are matched by id. String
+// ids keep the relay clear of the numeric prove-task id space.
+let flatShareSeq = 0;
+const flatSharePending = new Map();
+self._sigbashCommitCanonicalFlatSharesAsync = function(bytes) {
+  return new Promise(function(resolve, reject) {
+    flatShareSeq += 1;
+    const id = 'fsc-' + flatShareSeq;
+    const timer = setTimeout(function() {
+      if (flatSharePending.has(id)) {
+        flatSharePending.delete(id);
+        reject(new Error('flat-share commit relay timed out'));
+      }
+    }, 10000);
+    flatSharePending.set(id, { resolve: resolve, reject: reject, timer: timer });
+    self.postMessage({ type: 'flat_share_commit_request', id: id, values: bytes }, [bytes.buffer]);
+  });
+};
+
 self.onmessage = function(e) {
   const msg = e.data;
+  if (msg.type === 'flat_share_commit_result' || msg.type === 'flat_share_commit_error') {
+    // Coordinator reply for the canonical flat-share commitment offload
+    // relay (see _sigbashCommitCanonicalFlatSharesAsync below).
+    const p = flatSharePending.get(msg.id);
+    if (p) {
+      flatSharePending.delete(msg.id);
+      clearTimeout(p.timer);
+      if (msg.type === 'flat_share_commit_result' && msg.result) {
+        p.resolve(new Uint8Array(msg.result));
+      } else {
+        p.reject(new Error(msg.error || 'flat-share commit relay failed'));
+      }
+    }
+    return;
+  }
   if (msg.type === 'init') {
     initWasm(msg.wasmExecUrl, msg.wasmUrl, msg.expectedHash).then(function() {
       wasmReady = true;
@@ -567,6 +654,7 @@ async function handleWitnessAndProve(msg) {
         const blob = new Blob([workerCode], { type: 'application/javascript' });
         const url = URL.createObjectURL(blob);
         const worker = new Worker(url);
+        this._attachFlatShareRelay(worker);
 
         // Settled guard prevents the timeout from terminating a worker that
         // already resolved successfully (or vice versa).
@@ -647,7 +735,45 @@ const pending = [];
 // (see multi-input.md). Safe to revert once root cause is found.
 let pendingDebugMode = false;
 
+// Canonical flat-share commitment offload relay (worker half). The prover's
+// Go side calls global._sigbashCommitCanonicalFlatSharesAsync(Uint8Array)
+// during the unified round-1 commit and expects a Promise resolving to the
+// coordinator-computed commitments (Uint8Array). Requests travel to the
+// main thread as transferable messages; replies are matched by id. String
+// ids keep the relay clear of the numeric prove-task id space.
+let flatShareSeq = 0;
+const flatSharePending = new Map();
+global._sigbashCommitCanonicalFlatSharesAsync = function(bytes) {
+  return new Promise(function(resolve, reject) {
+    flatShareSeq += 1;
+    const id = "fsc-" + flatShareSeq;
+    const timer = setTimeout(function() {
+      if (flatSharePending.has(id)) {
+        flatSharePending.delete(id);
+        reject(new Error("flat-share commit relay timed out"));
+      }
+    }, 10000);
+    flatSharePending.set(id, { resolve: resolve, reject: reject, timer: timer });
+    parentPort.postMessage({ type: "flat_share_commit_request", id: id, values: bytes }, [bytes.buffer]);
+  });
+};
+
 parentPort.on("message", function(msg) {
+  if (msg.type === "flat_share_commit_result" || msg.type === "flat_share_commit_error") {
+    // Coordinator reply for the canonical flat-share commitment offload
+    // relay (see global._sigbashCommitCanonicalFlatSharesAsync above).
+    const p = flatSharePending.get(msg.id);
+    if (p) {
+      flatSharePending.delete(msg.id);
+      clearTimeout(p.timer);
+      if (msg.type === "flat_share_commit_result" && msg.result) {
+        p.resolve(new Uint8Array(msg.result));
+      } else {
+        p.reject(new Error(msg.error || "flat-share commit relay failed"));
+      }
+    }
+    return;
+  }
   if (msg.type === "set_debug_mode") {
     // TEMP debug instrumentation for multi-input sumcheck investigation
     // (see multi-input.md). Safe to revert once root cause is found.
@@ -826,6 +952,7 @@ async function handleWitnessAndProve(msg) {
           eval: true,
           workerData: { wasmExecPath, wasmPath, sigbashBaseUrl, expectedHash, debugEnabled },
         });
+        this._attachFlatShareRelay(worker);
 
         let settled = false;
 
