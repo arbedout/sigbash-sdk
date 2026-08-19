@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-19
+
+### Security
+
+- **`server.js` HTTP wrapper now requires a listener bearer token** on every
+  route except `/health`/`/setup/credentials` (`SIGBASH_LISTENER_TOKEN`, or a
+  random token generated and printed to stderr on startup). Previously any
+  network peer that could reach the port could sign, read decrypted KMC
+  envelopes, and export recovery kits using whatever credentials the operator
+  had configured, with no proof of authorization. `server.js` also now binds
+  `127.0.0.1` by default (`SIGBASH_BIND_HOST` to override); the Docker image
+  sets `SIGBASH_BIND_HOST=0.0.0.0` since the port mapping requires it, making
+  the listener token the actual security boundary in that path.
+- `generateCredentials()` now writes `.env` with mode `0600` instead of the
+  platform-default (typically world-readable `0644`), and `chmod`s existing
+  files to match.
+- Added a minimum-length check (32 characters) on `userSecretKey` in the
+  `SigbashClient` constructor, throwing the new `WeakSecretError`. Short,
+  human-typed secrets made server-stored KMC envelopes offline
+  brute-forceable via the HKDF derivation.
+- `dispose()` now also clears `apiKey`/`userKey` string references in
+  addition to `userSecretKey` and the private key bytes (best-effort — see
+  `docs/authentication.md`).
+
+### Fixed
+
+- `server.js`'s `POST /keys/:keyId/update-policy` route called
+  `adminUpdatePolicy()`, which does not exist on `SigbashClient` — it always
+  threw. Fixed to call `updatePolicy()`.
+- The Dockerfile's synthesized `package.json` pinned `@sigbash/sdk` to
+  `^0.1.0` (resolving to a six-minor-versions-stale `0.1.8`) instead of a
+  current release; changed to `latest`.
+- Upgraded `socket.io-client` to resolve high-severity memory-exhaustion
+  advisories in its `ws` / `socket.io-parser` dependency chain.
+
+### Changed
+
+**Breaking:**
+
+- `OUTPUT_VALUE` and `INPUT_VALUE` conditions now require an explicit
+  `selector` — omitting it throws `PolicyCompileError` instead of silently
+  defaulting to `'ANY'`, which made upper/lower-bound value checks
+  satisfiable by a single small matching output/input regardless of the rest
+  of the transaction. Add `selector: 'ALL'` or `selector: 'ANY'` explicitly
+  to any policy using these conditions without one.
+- `INPUT_SIGHASH_TYPE`/`INPUT_SCRIPT_TYPE`/`OUTPUT_SCRIPT_TYPE` conditions now
+  throw `PolicyCompileError` for an unrecognised `sighash_type`/`script_type`
+  string instead of silently dropping the constraint. Added `SIGHASH_DEFAULT`
+  to the recognised sighash types (previously unmapped, despite being this
+  SDK's own Ark-flow taproot keyspend default).
+
 ## [0.7.1] — 2026-06-29
 
 ### Changed

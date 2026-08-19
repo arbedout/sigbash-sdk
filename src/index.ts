@@ -111,6 +111,7 @@ export {
   KeyIndexExistsError,
   PolicyCompileError,
   MissingOptionError,
+  WeakSecretError,
   AdminError,
   TOTPRequiredError,
   TOTPInvalidError,
@@ -135,7 +136,7 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.7.1';
+export const SDK_VERSION = '0.8.0';
 
 // Arkade integration — @arkade-os/ts-sdk Identity bridge
 export {

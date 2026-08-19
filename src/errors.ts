@@ -276,6 +276,26 @@ export class MissingOptionError extends SigbashSDKError {
 }
 
 /**
+ * Thrown when a secret credential (e.g. userSecretKey) is too short to provide
+ * adequate entropy against offline brute-force of HKDF-derived keys.
+ */
+export class WeakSecretError extends SigbashSDKError {
+  public readonly optionName: string;
+
+  constructor(optionName: string) {
+    super(
+      `Option '${optionName}' is too short (minimum 32 characters) — this value is used as HKDF ` +
+        'input keying material and short/human-typed secrets make server-stored envelopes ' +
+        'offline-brute-forceable',
+      'WEAK_SECRET'
+    );
+    this.name = 'WeakSecretError';
+    this.optionName = optionName;
+    Object.setPrototypeOf(this, WeakSecretError.prototype);
+  }
+}
+
+/**
  * Thrown when an operation requires admin privileges but the caller is not an admin.
  */
 export class AdminError extends SigbashSDKError {

@@ -11,16 +11,20 @@ any language that can make HTTP requests.
 1. **Install and run** the server (`npm install express @sigbash/sdk && node server.js`,
    or `docker run`). See [Running Standalone](#running-standalone) /
    [Running with Docker](#running-with-docker).
-2. **Bootstrap credentials** by calling `POST /setup/credentials` — see
+2. **Save the listener token** printed to stderr on startup —
+   `export TOKEN=<printed-token>` — and pass it as
+   `-H "Authorization: Bearer $TOKEN"` on every request below except
+   `/health`/`/setup/credentials`. See [Listener auth](#listener-auth).
+3. **Bootstrap credentials** by calling `POST /setup/credentials` — see
    [Bootstrap](#bootstrap-generating-credentials).
-3. **Write `.env`** yourself from the values returned in step 2. The endpoint
+4. **Write `.env`** yourself from the values returned in step 3. The endpoint
    does not write any files.
-4. **Create a key** via `POST /keys` with your POET policy — see
+5. **Create a key** via `POST /keys` with your POET policy — see
    [Registering a Key](#registering-a-key). Save the returned `keyId`.
-5. **Fund the wallet** by importing the returned `bip328Xpub` into a descriptor
+6. **Fund the wallet** by importing the returned `bip328Xpub` into a descriptor
    or multisig wallet of your choice. Do **not** fund the low-level
    `p2trAddress` directly.
-6. **Sign a PSBT** via `POST /keys/:keyId/sign` — see
+7. **Sign a PSBT** via `POST /keys/:keyId/sign` — see
    [Signing a PSBT](#signing-a-psbt).
 
 > **Mainnet.** All keys are signet-only by default. The only setup step
@@ -93,6 +97,32 @@ credentials per request via `X-Sigbash-*` headers.
 Only `/health` and `/setup/credentials` are accessible without credentials.
 All other endpoints return `401` if credentials cannot be resolved.
 
+### Listener auth
+
+The credential resolution above answers "which Sigbash account does this
+request act as." It does **not** answer "is this caller allowed to talk to
+this HTTP listener at all" — once `.env`/env-var credentials are configured,
+those credentials are used for every request that doesn't supply its own
+`X-Sigbash-*` headers, regardless of who sent it.
+
+To close that gap, every route except `/health` and `/setup/credentials`
+additionally requires an `Authorization: Bearer <token>` header, checked
+against `SIGBASH_LISTENER_TOKEN`. If you don't set that env var, the server
+generates a random token at startup and prints it once to stderr:
+
+```
+Generated listener token (pass as 'Authorization: Bearer <token>'): 3f1c...
+```
+
+Set `SIGBASH_LISTENER_TOKEN` explicitly to use a fixed value across restarts.
+This token is unrelated to your Sigbash `apiKey`/`userKey`/`userSecretKey` —
+it only gates access to this local listener.
+
+The server also binds `127.0.0.1` by default (see `SIGBASH_BIND_HOST` below)
+so that, even without a token, the listener isn't reachable off-host. Docker
+deployments override this to `0.0.0.0` because the port mapping requires it —
+see [Running with Docker](#running-with-docker).
+
 ### Request signing (PoP)
 
 Every authenticated upstream call the server makes to Sigbash is signed with
@@ -120,7 +150,14 @@ signature headers — supplying all three credentials (via `.env`, env vars, or
 npm install express @sigbash/sdk
 
 node server.js
-# → sigbash-http-server listening on :3000
+# → Generated listener token (pass as 'Authorization: Bearer <token>'): 3f1c...
+# → sigbash-http-server listening on 127.0.0.1:3000
+```
+
+Every call after that needs the printed token:
+
+```bash
+curl -s http://localhost:3000/keys -H "Authorization: Bearer $TOKEN"
 ```
 
 Optional environment variables:
@@ -129,6 +166,8 @@ Optional environment variables:
 |---|---|---|
 | `PORT` | `3000` | Port to listen on |
 | `SIGBASH_WASM_URL` | `https://www.sigbash.com/sigbash.wasm` | WASM binary URL |
+| `SIGBASH_BIND_HOST` | `127.0.0.1` | Interface to bind — only widen this alongside a known `SIGBASH_LISTENER_TOKEN` |
+| `SIGBASH_LISTENER_TOKEN` | random, printed to stderr | Bearer token required on every route except `/health`/`/setup/credentials` — see [Listener auth](#listener-auth) |
 
 ---
 
@@ -140,10 +179,19 @@ Build the image (uses the included `Dockerfile`):
 docker build -t sigbash-server .
 ```
 
+> **The published port is only as safe as `SIGBASH_LISTENER_TOKEN`.** The
+> image sets `SIGBASH_BIND_HOST=0.0.0.0` (required for `-p` to work at all),
+> so once you publish the port, the listener token — not the bind host — is
+> what stops other hosts on the network from using your configured Sigbash
+> credentials. Always set an explicit `SIGBASH_LISTENER_TOKEN` for anything
+> beyond local testing; a freshly generated one is printed to the container
+> logs (`docker logs`) if you don't.
+
 Run without credentials (bootstrap mode):
 
 ```bash
 docker run --rm -p 3000:3000 sigbash-server
+docker logs <container-id>   # shows the generated listener token
 ```
 
 Run with credentials via environment:
@@ -153,10 +201,11 @@ docker run --rm -p 3000:3000 \
   -e SIGBASH_API_KEY=<your-api-key> \
   -e SIGBASH_USER_KEY=<your-user-key> \
   -e SIGBASH_SECRET_KEY=<your-user-secret-key> \
+  -e SIGBASH_LISTENER_TOKEN=<a-strong-random-token> \
   sigbash-server
 ```
 
-Or with a `.env` file:
+Or with a `.env` file (add `SIGBASH_LISTENER_TOKEN=...` to it):
 
 ```bash
 docker run --rm -p 3000:3000 --env-file .env sigbash-server
@@ -199,7 +248,7 @@ The `userSecretKey` is generated locally and never sent to Sigbash.
 To get your org identifier (needed to request mainnet access):
 
 ```bash
-curl -s http://localhost:3000/setup/auth-hash | python3 -m json.tool
+curl -s http://localhost:3000/setup/auth-hash -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
 ```json
@@ -225,6 +274,7 @@ the policy JSON below, see [policy-overview.md](policy-overview.md).
 
 ```bash
 curl -s -X POST http://localhost:3000/keys \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": {
@@ -273,6 +323,7 @@ returns HTTP `409` with a `nextAvailableIndex` field. Retry with that value:
 
 ```bash
 RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{ "policy": {...}, "network": "signet", "keyIndex": 0 }')
 
@@ -293,7 +344,7 @@ This mirrors the retry pattern documented in `AGENTS.md`.
 caller. No KMC decryption happens, so it's cheap to poll:
 
 ```bash
-curl -s http://localhost:3000/keys | python3 -m json.tool
+curl -s http://localhost:3000/keys -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
 ```json
@@ -350,6 +401,7 @@ The `kmcJSON` field from the verbose response is required for signing.
 
 ```bash
 curl -s -X POST http://localhost:3000/keys/key-abc123/sign \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "psbtBase64": "<base64-encoded PSBT>",
@@ -373,6 +425,7 @@ Checks whether the PSBT satisfies the policy without consuming a nullifier:
 
 ```bash
 curl -s -X POST http://localhost:3000/keys/key-abc123/verify \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "psbtBase64": "<base64-encoded PSBT>",
@@ -397,7 +450,8 @@ not include a current TOTP code. Enrolment is two steps:
 
 ```bash
 # 1. Begin enrolment — returns an otpauth:// URI and the raw secret
-curl -s -X POST http://localhost:3000/keys/key-abc123/totp/register | python3 -m json.tool
+curl -s -X POST http://localhost:3000/keys/key-abc123/totp/register \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
 ```json
@@ -413,6 +467,7 @@ Render `uri` as a QR code in the user's authenticator app. Optionally store
 ```bash
 # 2. Confirm with the first 6-digit code from the authenticator app
 curl -s -X POST http://localhost:3000/keys/key-abc123/totp/confirm \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{ "totpCode": "123456" }' | python3 -m json.tool
 ```
@@ -462,7 +517,8 @@ on the credential model and how recovery kits work.
 Call this **before** the `userSecretKey` is lost, while the triplet is still valid:
 
 ```bash
-curl -s http://localhost:3000/keys/key-abc123/recovery-kit | python3 -m json.tool
+curl -s http://localhost:3000/keys/key-abc123/recovery-kit \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
 ```json
@@ -488,6 +544,7 @@ lost their `userSecretKey`. The `userSecretKey` field is ignored during recovery
 
 ```bash
 curl -s -X POST http://localhost:3000/recovery \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "version": "sdk-recovery-v1",
@@ -523,6 +580,7 @@ Then perform the recovery via the local server:
 
 ```bash
 curl -s -X POST http://localhost:3000/admin/recover \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "targetUserKey": "<departed-user-key>",
@@ -564,6 +622,7 @@ Pre-authorise a new user so they can create their own keys within the org:
 
 ```bash
 curl -s -X POST http://localhost:3000/admin/users \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{ "userKey": "<new-user-key>" }' | python3 -m json.tool
 ```
@@ -583,6 +642,7 @@ A key's policy is immutable unless it was created with `"updateable": true`:
 
 ```bash
 curl -s -X POST http://localhost:3000/keys \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": { ... },
@@ -601,6 +661,7 @@ To replace the policy:
 
 ```bash
 curl -s -X POST http://localhost:3000/keys/key-abc123/update-policy \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "newPolicyJson": "{\"version\":\"1.1\",\"policy\":{\"type\":\"operator\",\"operator\":\"AND\",\"children\":[{\"type\":\"condition\",\"conditionType\":\"OUTPUT_VALUE\",\"conditionParams\":{\"selector\":\"ALL\",\"operator\":\"LTE\",\"value\":50000}}]}}"
@@ -636,7 +697,8 @@ Then call `/admin/recover` as shown in
 ### 4. Locking out a compromised user
 
 ```bash
-curl -s -X DELETE http://localhost:3000/admin/users/<userKey> | python3 -m json.tool
+curl -s -X DELETE http://localhost:3000/admin/users/<userKey> \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
 ```json

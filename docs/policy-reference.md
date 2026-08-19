@@ -155,7 +155,11 @@ Some conditions check per-input or per-output properties. These conditions accep
 | `'ANY'` | At least one input/output must satisfy the condition |
 | `{ type: 'INDEX', index: N }` | Only the Nth input/output (zero-based) |
 
-**Default:** When a condition supports a selector but you omit it, the SDK defaults to `'ANY'`.
+**Default:** When a condition supports a selector but you omit it, the SDK defaults to `'ANY'` —
+**except `OUTPUT_VALUE` and `INPUT_VALUE`, where `selector` is mandatory.** An implicit `'ANY'`
+would make an upper/lower value bound vacuous (satisfiable by any transaction with one small
+matching output/input), so the SDK throws `PolicyCompileError` if it's omitted on those two
+condition types — you must write `selector: 'ALL'` or `selector: 'ANY'` explicitly.
 
 ---
 
@@ -287,7 +291,7 @@ Numeric comparison on the satoshi value of one or more outputs.
 |---|---|---|---|
 | `operator` | `ComparisonOperator` | yes | `'LTE'`, `'GTE'`, `'EQ'`, `'LT'`, `'GT'`, `'NEQ'` |
 | `value` | `number` | yes | Threshold in satoshis |
-| `selector` | `Selector` | no (default `'ANY'`) | Which outputs to check |
+| `selector` | `Selector` | **yes** | Which outputs to check — no default; see [Selectors](#selectors) |
 
 ```typescript
 { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 100_000 }
@@ -301,7 +305,7 @@ Numeric comparison on the satoshi value of one or more inputs.
 |---|---|---|---|
 | `operator` | `ComparisonOperator` | yes | `'LTE'`, `'GTE'`, `'EQ'`, `'LT'`, `'GT'`, `'NEQ'` |
 | `value` | `number` | yes | Threshold in satoshis |
-| `selector` | `Selector` | no (default `'ANY'`) | Which inputs to check |
+| `selector` | `Selector` | **yes** | Which inputs to check — no default; see [Selectors](#selectors) |
 
 ```typescript
 { type: 'INPUT_VALUE', selector: 'ALL', operator: 'GTE', value: 1_000 }
@@ -400,8 +404,10 @@ Enforces a specific sighash type on one or more inputs.
 
 | Param | Type | Required | Valid values |
 |---|---|---|---|
-| `sighash_type` | `string` | yes | `'SIGHASH_ALL'`, `'SIGHASH_NONE'`, `'SIGHASH_SINGLE'`, `'SIGHASH_ANYONECANPAY_ALL'`, `'SIGHASH_ANYONECANPAY_NONE'`, `'SIGHASH_ANYONECANPAY_SINGLE'` |
+| `sighash_type` | `string` | yes | `'SIGHASH_DEFAULT'`, `'SIGHASH_ALL'`, `'SIGHASH_NONE'`, `'SIGHASH_SINGLE'`, `'SIGHASH_ANYONECANPAY_ALL'`, `'SIGHASH_ANYONECANPAY_NONE'`, `'SIGHASH_ANYONECANPAY_SINGLE'` |
 | `selector` | `Selector` | no (default `'ANY'`) | Which inputs to check |
+
+Any other string throws `PolicyCompileError` at `createKey()` time — it is never silently dropped.
 
 ```typescript
 { type: 'INPUT_SIGHASH_TYPE', selector: 'ALL', sighash_type: 'SIGHASH_ALL' }
@@ -912,7 +918,7 @@ Available as the `SCRIPT_TYPES` export:
 
 Available as the `SIGHASH_TYPES` export:
 
-`SIGHASH_ALL` | `SIGHASH_NONE` | `SIGHASH_SINGLE` | `SIGHASH_ANYONECANPAY_ALL` | `SIGHASH_ANYONECANPAY_NONE` | `SIGHASH_ANYONECANPAY_SINGLE`
+`SIGHASH_DEFAULT` | `SIGHASH_ALL` | `SIGHASH_NONE` | `SIGHASH_SINGLE` | `SIGHASH_ANYONECANPAY_ALL` | `SIGHASH_ANYONECANPAY_NONE` | `SIGHASH_ANYONECANPAY_SINGLE`
 
 ---
 

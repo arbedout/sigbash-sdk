@@ -19,10 +19,15 @@ Before doing anything else, check whether credentials and keys already exist.
 - Those same variables in the environment
 - A running server responding to `GET /health`
 
+If the HTTP server path applies, also look for `SIGBASH_LISTENER_TOKEN` in
+`.env`/environment, or ask the user for the token printed when the server
+last started — every route below `/health` requires it as
+`Authorization: Bearer <token>`.
+
 **If credentials exist**, list existing keys immediately:
 ```bash
 # HTTP server already running:
-curl -s http://localhost:3000/keys
+curl -s http://localhost:3000/keys -H "Authorization: Bearer $TOKEN"
 
 # TypeScript SDK:
 const keys = await client.listKeys();
@@ -230,10 +235,19 @@ More examples and full param reference: [docs/policy-reference.md](docs/policy-r
 
 ### Start the server
 
+Every route except `/health` and `/setup/credentials` requires a listener
+bearer token (`Authorization: Bearer $TOKEN`) — this is separate from the
+Sigbash credentials below and gates access to the local HTTP server itself.
+**Set it explicitly** (rather than letting the server generate a random one)
+so it's available across steps in this session:
+```bash
+export TOKEN=$(openssl rand -hex 32)
+```
+
 **Standalone:**
 ```bash
 npm install express @sigbash/sdk
-node server.js
+SIGBASH_LISTENER_TOKEN=$TOKEN node server.js
 ```
 
 **Docker:**
@@ -241,14 +255,14 @@ node server.js
 git clone https://github.com/arbedout/sigbash-sdk.git
 cd sigbash-sdk
 docker build -t sigbash-server .
-docker run --rm -p 3000:3000 sigbash-server
-# or with a .env file:
+docker run --rm -p 3000:3000 -e SIGBASH_LISTENER_TOKEN=$TOKEN sigbash-server
+# or with a .env file (add SIGBASH_LISTENER_TOKEN=... to it):
 docker run --rm -p 3000:3000 --env-file .env sigbash-server
 ```
 
 If port 3000 is already in use, pick any free port — e.g. 3001:
 ```bash
-docker run --rm -p 3001:3000 -e PORT=3000 sigbash-server
+docker run --rm -p 3001:3000 -e PORT=3000 -e SIGBASH_LISTENER_TOKEN=$TOKEN sigbash-server
 ```
 Replace `3000` with `3001` in all subsequent curl commands.
 
@@ -283,6 +297,7 @@ automatically using that value — do not ask the user. Repeat until a key is su
 ```bash
 # Attempt registration; capture the full response
 RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
     "policy": {
@@ -306,6 +321,7 @@ RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
 NEXT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('nextAvailableIndex',''))" 2>/dev/null)
 if [ -n "$NEXT" ]; then
   RESPONSE=$(curl -s -X POST http://localhost:3000/keys \
+    -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' \
     -d "{
       \"policy\": { \"version\": \"1.1\", \"policy\": { \"type\": \"operator\", \"operator\": \"AND\", \"children\": [{ \"type\": \"condition\", \"conditionType\": \"OUTPUT_VALUE\", \"conditionParams\": { \"selector\": \"ALL\", \"operator\": \"LTE\", \"value\": 10000 } }] } },
@@ -323,9 +339,10 @@ Save `keyId` — it is required for all subsequent signing calls.
 **Sign a PSBT:**
 ```bash
 # First retrieve kmcJSON (verbose=true required)
-KMC=$(curl -s "http://localhost:3000/keys/<keyId>?verbose=true" | python3 -c "import sys,json; print(json.load(sys.stdin)['kmcJSON'])")
+KMC=$(curl -s "http://localhost:3000/keys/<keyId>?verbose=true" -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin)['kmcJSON'])")
 
 curl -X POST http://localhost:3000/keys/<keyId>/sign \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "{\"psbtBase64\": \"<base64 PSBT>\", \"kmcJSON\": \"$KMC\", \"network\": \"signet\"}"
 ```

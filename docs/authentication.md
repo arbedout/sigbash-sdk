@@ -102,6 +102,13 @@ A single triplet can register multiple keys — see
 
 Org admin promotion and user management are covered in [admin.md](./admin.md).
 
+> **`dispose()` is best-effort.** Calling `client.dispose()` zeroes the raw
+> private-key bytes and clears the `userSecretKey`/`apiKey`/`userKey` string
+> references, but JS strings are immutable — copies made during signing
+> (e.g. JSON payloads passed into WASM) are not zeroed and may remain in heap
+> memory until garbage collected. Don't enable core dumps for processes that
+> hold live key material.
+
 ---
 
 ## Per-request Ed25519 proof-of-possession (PoP)

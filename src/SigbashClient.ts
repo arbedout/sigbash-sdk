@@ -44,6 +44,7 @@ import {
   TOTPInvalidError,
   TOTPRequiredError,
   TOTPSetupIncompleteError,
+  WeakSecretError,
 } from './errors';
 
 import { generateTOTPSecret, buildTOTPUri } from './totp';
@@ -137,18 +138,27 @@ const BOOLEAN_DERIVED_CONDITIONS = new Set([
   'DERIVED_NO_NEW_OUTPUTS',
 ]);
 
-// Conditions that require a selector — default to 'ANY' when omitted,
-// mirroring the web UI's default dropdown value.
+// Conditions that require a selector and default to 'ANY' when omitted,
+// mirroring the web UI's default dropdown value. Membership/equality checks
+// only — NOT value-bound conditions, where an implicit default is unsafe
+// (see SELECTOR_MANDATORY_CONDITIONS below).
 const SELECTOR_REQUIRED_CONDITIONS = new Set([
-  'INPUT_VALUE',
   'INPUT_SEQUENCE',
   'INPUT_SCRIPT_TYPE',
   'INPUT_SIGHASH_TYPE',
-  'OUTPUT_VALUE',
   'OUTPUT_SCRIPT_TYPE',
 ]);
 
+// Upper/lower-bound value conditions where an 'ANY' default would make the
+// bound vacuous (any tx with one small output/input satisfies it). Selector
+// must be explicit so the author consciously picks ALL or ANY.
+const SELECTOR_MANDATORY_CONDITIONS = new Set([
+  'INPUT_VALUE',
+  'OUTPUT_VALUE',
+]);
+
 const SIGHASH_TYPE_MAP: Record<string, number> = {
+  'SIGHASH_DEFAULT':           0x00,
   'SIGHASH_ALL':               0x01,
   'SIGHASH_NONE':              0x02,
   'SIGHASH_SINGLE':            0x03,
@@ -199,28 +209,48 @@ function normalisePolicy(node: unknown): unknown {
 
       // 2. INPUT_SIGHASH_TYPE: sighash_type string → min/max numeric
       if (ct === 'INPUT_SIGHASH_TYPE' && typeof params['sighash_type'] === 'string') {
-        const enumValue = SIGHASH_TYPE_MAP[params['sighash_type'] as string];
-        if (enumValue !== undefined) {
-          params['min'] = enumValue;
-          params['max'] = enumValue;
+        const sighashType = params['sighash_type'] as string;
+        const enumValue = SIGHASH_TYPE_MAP[sighashType];
+        if (enumValue === undefined) {
+          throw new PolicyCompileError(
+            `INPUT_SIGHASH_TYPE: unknown sighash_type '${sighashType}' — expected one of: ` +
+              Object.keys(SIGHASH_TYPE_MAP).join(', ')
+          );
         }
+        params['min'] = enumValue;
+        params['max'] = enumValue;
         delete params['sighash_type'];
       }
 
       // 3. INPUT_SCRIPT_TYPE / OUTPUT_SCRIPT_TYPE: script_type string → min/max numeric
       if ((ct === 'INPUT_SCRIPT_TYPE' || ct === 'OUTPUT_SCRIPT_TYPE') &&
           typeof params['script_type'] === 'string') {
-        const enumValue = SCRIPT_TYPE_MAP[params['script_type'] as string];
-        if (enumValue !== undefined) {
-          params['min'] = enumValue;
-          params['max'] = enumValue;
+        const scriptType = params['script_type'] as string;
+        const enumValue = SCRIPT_TYPE_MAP[scriptType];
+        if (enumValue === undefined) {
+          throw new PolicyCompileError(
+            `${ct}: unknown script_type '${scriptType}' — expected one of: ` +
+              Object.keys(SCRIPT_TYPE_MAP).join(', ')
+          );
         }
+        params['min'] = enumValue;
+        params['max'] = enumValue;
         delete params['script_type'];
       }
 
-      // 4. Default selector for SELECTOR_REQUIRED conditions when absent
+      // 4. Default selector for SELECTOR_REQUIRED conditions when absent.
+      // Value-bound conditions (SELECTOR_MANDATORY_CONDITIONS) get no default —
+      // an implicit 'ANY' would make an upper/lower bound vacuous, so the
+      // caller must choose explicitly.
       if (SELECTOR_REQUIRED_CONDITIONS.has(ct) && !params['selector']) {
         params['selector'] = 'ANY';
+      }
+      if (SELECTOR_MANDATORY_CONDITIONS.has(ct) && !params['selector']) {
+        throw new PolicyCompileError(
+          `${ct} requires an explicit selector ('ALL' or 'ANY') — omitting it would silently ` +
+            "default to 'ANY', which makes a value bound satisfiable by a single matching " +
+            'input/output regardless of the rest of the transaction'
+        );
       }
 
       // 5. Reject empty address lists for set-membership conditions — but only
@@ -505,6 +535,11 @@ export class SigbashClient {
     // which the admin can compute without userSecretKey.
     if (!options.userSecretKey || options.userSecretKey.length === 0) {
       throw new MissingOptionError('userSecretKey');
+    }
+    // Floor on length (not format — pop.ts accepts arbitrary UTF-8) so that
+    // short human-typed secrets can't collapse the HKDF brute-force space.
+    if (options.userSecretKey.length < 32) {
+      throw new WeakSecretError('userSecretKey');
     }
     if (!options.serverUrl) throw new MissingOptionError('serverUrl');
 
@@ -1810,15 +1845,30 @@ export class SigbashClient {
   }
 
   /**
-   * Overwrite the in-memory private key with random bytes and mark this instance as disposed.
-   * Call this when the SigbashClient is no longer needed.
+   * Overwrite the in-memory private key with random bytes, clear secret string
+   * references (userSecretKey, apiKey, userKey), and mark this instance as
+   * disposed. Call this when the SigbashClient is no longer needed.
+   *
+   * This is best-effort: JS strings are immutable, so prior copies made
+   * during signing (e.g. JSON payloads passed into WASM) are not zeroed and
+   * may persist in heap memory until garbage collected. Avoid enabling core
+   * dumps for processes handling key material.
    */
   dispose(): void {
     if (this.#disposed) return;
     crypto.getRandomValues(this.#musig2PrivateKey);
-    // Overwrite the userSecretKey reference — string can't be zeroed in JS but
+    // Overwrite string secret references — strings can't be zeroed in JS but
     // removing the reference makes the original value eligible for GC sooner.
-    (this as unknown as { _userSecretKey: string })._userSecretKey = '';
+    // This is best-effort: prior copies (e.g. from JSON.stringify calls into
+    // WASM) may still exist in heap memory until garbage collected.
+    const self = this as unknown as {
+      _userSecretKey: string;
+      _apiKey: string;
+      _userKey: string;
+    };
+    self._userSecretKey = '';
+    self._apiKey = '';
+    self._userKey = '';
     this.#disposed = true;
   }
 

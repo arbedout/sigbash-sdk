@@ -10,6 +10,7 @@ import {
   SigbashSDKError,
   KeyIndexExistsError,
   MissingOptionError,
+  WeakSecretError,
   AdminError,
   TOTPRequiredError,
   TOTPInvalidError,
@@ -37,6 +38,7 @@ const instances: [string, Error][] = [
   ['SigbashSDKError',          new SigbashSDKError('sdk error', 'SOME_CODE')],
   ['KeyIndexExistsError',      new KeyIndexExistsError(3, 4)],
   ['MissingOptionError',       new MissingOptionError('apiKey')],
+  ['WeakSecretError',          new WeakSecretError('userSecretKey')],
   ['AdminError',               new AdminError()],
   ['TOTPRequiredError',        new TOTPRequiredError()],
   ['TOTPInvalidError',         new TOTPInvalidError()],
@@ -124,6 +126,13 @@ describe('instanceof checks', () => {
     expect(err).toBeInstanceOf(Error);
   });
 
+  it('WeakSecretError is instanceof WeakSecretError, SigbashSDKError, and Error', () => {
+    const err = new WeakSecretError('userSecretKey');
+    expect(err).toBeInstanceOf(WeakSecretError);
+    expect(err).toBeInstanceOf(SigbashSDKError);
+    expect(err).toBeInstanceOf(Error);
+  });
+
   it('AdminError is instanceof AdminError, SigbashSDKError, and Error', () => {
     const err = new AdminError();
     expect(err).toBeInstanceOf(AdminError);
@@ -178,6 +187,7 @@ describe('.name property', () => {
       ['SigbashSDKError',          new SigbashSDKError('msg', 'CODE')],
       ['KeyIndexExistsError',      new KeyIndexExistsError(0)],
       ['MissingOptionError',       new MissingOptionError('opt')],
+      ['WeakSecretError',          new WeakSecretError('opt')],
       ['AdminError',               new AdminError()],
       ['TOTPRequiredError',        new TOTPRequiredError()],
       ['TOTPInvalidError',         new TOTPInvalidError()],
@@ -290,6 +300,13 @@ describe('MissingOptionError', () => {
   it('.optionName equals the value passed to the constructor', () => {
     const err = new MissingOptionError('apiKey');
     expect(err.optionName).toBe('apiKey');
+  });
+});
+
+describe('WeakSecretError', () => {
+  it('.optionName equals the value passed to the constructor', () => {
+    const err = new WeakSecretError('userSecretKey');
+    expect(err.optionName).toBe('userSecretKey');
   });
 });
 

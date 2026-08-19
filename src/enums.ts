@@ -21,6 +21,7 @@
  * ```
  */
 export const SIGHASH_TYPES = {
+  SIGHASH_DEFAULT:           'SIGHASH_DEFAULT',
   SIGHASH_ALL:               'SIGHASH_ALL',
   SIGHASH_NONE:              'SIGHASH_NONE',
   SIGHASH_SINGLE:            'SIGHASH_SINGLE',

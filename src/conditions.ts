@@ -91,9 +91,9 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
       },
       selector: {
         type: 'Selector',
-        description: "Which outputs to check. Defaults to 'ANY' if omitted.",
-        required: false,
-        default: 'ANY',
+        description: "Which outputs to check. No default — an implicit 'ANY' would make the " +
+          'value bound vacuous, so this must be specified explicitly.',
+        required: true,
       },
     },
     example: { type: 'OUTPUT_VALUE', selector: 'ALL', operator: 'LTE', value: 100000 },
@@ -116,9 +116,9 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
       },
       selector: {
         type: 'Selector',
-        description: "Which inputs to check. Defaults to 'ANY' if omitted.",
-        required: false,
-        default: 'ANY',
+        description: "Which inputs to check. No default — an implicit 'ANY' would make the " +
+          'value bound vacuous, so this must be specified explicitly.',
+        required: true,
       },
     },
     example: { type: 'INPUT_VALUE', selector: 'ALL', operator: 'GTE', value: 1000 },
@@ -303,6 +303,7 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
         description: 'Required sighash type. The SDK converts this string to numeric form automatically.',
         required: true,
         enum: [
+          'SIGHASH_DEFAULT',
           'SIGHASH_ALL',
           'SIGHASH_NONE',
           'SIGHASH_SINGLE',

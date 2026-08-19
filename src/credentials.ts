@@ -144,7 +144,11 @@ export async function generateCredentials(
     `SIGBASH_SERVER_URL=https://www.sigbash.com`,
   ].join('\n') + '\n';
 
-  await fs.writeFile(envPath, content, { encoding: 'utf8', flag: 'w' });
+  await fs.writeFile(envPath, content, { encoding: 'utf8', flag: 'w', mode: 0o600 });
+  // `mode` on writeFile only applies when the file is created; chmod
+  // explicitly so overwriting a pre-existing, more permissive file also ends
+  // up owner-only (the file holds SIGBASH_SECRET_KEY in plaintext).
+  await fs.chmod(envPath, 0o600);
 
   return { apiKey, userKey, userSecretKey, envPath, existed: false };
 }

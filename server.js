@@ -1,5 +1,6 @@
 import express from 'express';
 import { readFileSync } from 'fs';
+import crypto from 'crypto';
 import {
   loadWasm,
   SigbashClient,
@@ -18,7 +19,27 @@ const DEFAULT_SERVER_URL = 'https://www.sigbash.com';
 const {
   SIGBASH_WASM_URL = `${DEFAULT_SERVER_URL}/sigbash.wasm`,
   PORT = '3000',
+  // Binds loopback-only by default — this server holds live credentials and
+  // will sign/spend on behalf of whoever can reach it. Set explicitly (e.g.
+  // to 0.0.0.0 inside a container, or behind a reverse proxy that terminates
+  // its own auth) only when the listener token below is also in place.
+  SIGBASH_BIND_HOST = '127.0.0.1',
+  SIGBASH_LISTENER_TOKEN,
 } = process.env;
+
+// ── Listener auth ────────────────────────────────────────────────────────
+// Independent of the X-Sigbash-* credential-supply headers (which carry the
+// *caller's own* Sigbash credentials for the multi-tenant header path and are
+// validated upstream by sigbash.com). This token instead gates access to the
+// local HTTP listener itself: without it, once an operator configures
+// .env/env-var credentials, any network peer that can reach the port would
+// otherwise be able to sign/read/export recovery kits using those
+// credentials with no proof of authorization at all.
+const LISTENER_TOKEN = SIGBASH_LISTENER_TOKEN || crypto.randomBytes(32).toString('hex');
+if (!SIGBASH_LISTENER_TOKEN) {
+  console.error(`Generated listener token (pass as 'Authorization: Bearer <token>'): ${LISTENER_TOKEN}`);
+  console.error('Set SIGBASH_LISTENER_TOKEN to use a fixed token across restarts.');
+}
 
 // ── Credential resolution ──────────────────────────────────────────────────
 // Priority per request: .env file → process.env → X-Sigbash-* headers
@@ -50,6 +71,21 @@ function resolveCredentials(req) {
 // ── Per-request credential middleware ──────────────────────────────────────
 // /health and /setup/credentials are exempt — all other routes require creds.
 const EXEMPT = new Set(['/health', '/setup/credentials']);
+
+function requireListenerToken(req, res, next) {
+  if (EXEMPT.has(req.path)) return next();
+  const header = req.headers['authorization'] || '';
+  const [scheme, token] = header.split(' ');
+  const tokenBuf = Buffer.from(token || '');
+  const expectedBuf = Buffer.from(LISTENER_TOKEN);
+  const valid = scheme === 'Bearer' &&
+    tokenBuf.length === expectedBuf.length &&
+    crypto.timingSafeEqual(tokenBuf, expectedBuf);
+  if (!valid) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization: Bearer <listener token>.' });
+  }
+  next();
+}
 
 function requireCredentials(req, res, next) {
   if (EXEMPT.has(req.path)) return next();
@@ -90,6 +126,7 @@ function handleError(err, res) {
 // ── Routes ─────────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
+app.use(requireListenerToken);
 app.use(requireCredentials);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -178,7 +215,7 @@ app.post('/admin/recover', async (req, res) => {
 app.post('/keys/:keyId/update-policy', async (req, res) => {
   try {
     const { newPolicyJson } = req.body;
-    res.json(await client(req).adminUpdatePolicy(req.params.keyId, newPolicyJson));
+    res.json(await client(req).updatePolicy(req.params.keyId, newPolicyJson));
   }
   catch (err) { handleError(err, res); }
 });
@@ -215,8 +252,8 @@ async function start() {
   await loadWasm({ wasmUrl: SIGBASH_WASM_URL, expectedHash });
   console.log('WASM ready.');
 
-  const server = app.listen(parseInt(PORT), () =>
-    console.log(`sigbash-http-server listening on :${PORT}`)
+  const server = app.listen(parseInt(PORT), SIGBASH_BIND_HOST, () =>
+    console.log(`sigbash-http-server listening on ${SIGBASH_BIND_HOST}:${PORT}`)
   );
   // signPSBT involves ZK proof generation and can be long-running.
   server.setTimeout(0);
