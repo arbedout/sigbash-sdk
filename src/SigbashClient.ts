@@ -1570,7 +1570,13 @@ export class SigbashClient {
         errMsg.includes('max uses exhausted') ||
         errMsg.includes('failed to extract constraints from PathLeaf') ||
         errMsg.includes('MATCH_ARK_FORFEIT: connector input[1] must be a keyspend') ||
-        errMsg.includes('one or more scripts are not in the allowlist');
+        errMsg.includes('one or more scripts are not in the allowlist') ||
+        // A well-formed PSBT that spends only segwit-v0 (P2WSH/P2WPKH) inputs is
+        // unsignable by contract, not an infrastructure fault: Sigbash keys only
+        // ever live on a Taproot spending path. verifyPSBT reports this exact
+        // condition as a structured Passed:false result rather than an error
+        // (wasm/verify_psbt.go), so the signing path is classified the same way.
+        errMsg.includes('Sigbash only signs P2TR (Taproot) inputs');
       if (isSoftPolicyFailure) {
         return { success: false, error: errMsg };
       }

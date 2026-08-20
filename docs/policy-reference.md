@@ -197,7 +197,6 @@ Conditions that support descriptor mode (enabled by `use_descriptor: true`):
 | `INPUT_SOURCE_IS_IN_SETS` | Permitted input source addresses |
 | `OUTPUT_DEST_IS_IN_SETS` | Permitted output destination addresses |
 | `DERIVED_NO_NEW_OUTPUTS` | Allowed output address set (wallet self-consolidation) |
-| `REQKEY` | Key identifier derived from wallet descriptor |
 
 Common descriptor templates:
 
@@ -474,11 +473,9 @@ Proves that a specific key is present in the tapscript spending path, using a ze
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `key_identifier` | `string` | conditional | 64-char hex x-only public key (32 bytes). Required when `use_descriptor` is `false` |
+| `key_identifier` | `string` | yes | 64-char hex x-only public key (32 bytes) |
 | `key_type` | `string` | yes | `'TAP_LEAF_XONLY_PUBKEY'` or `'TAP_KEYPATH_OUTPUTKEY'` |
 | `selector` | `{ type: 'ALL' \| 'ANY' \| 'INDEX', index?: number }` | yes | How the key requirement is matched across the spending paths. `{ type: 'ALL' }` is the canonical default — see note below |
-| `use_descriptor` | `boolean` | no (default `false`) | When `true`, derive the key from `descriptor_template` instead of using a fixed `key_identifier` |
-| `descriptor_template` | `string` | conditional | BIP-328 descriptor with `SIGBASH_XPUB` placeholder. Required when `use_descriptor` is `true`. Resolved at key-registration time |
 
 **`key_type` plain-english:** `'TAP_LEAF_XONLY_PUBKEY'` is the **script-path** flavour
 — it proves the given key appears as an x-only pubkey inside a tapscript leaf
@@ -490,16 +487,9 @@ taptree somewhere"; use the keypath form for "this is the actual top-level
 spending key".
 
 ```typescript
-// Fixed key (most common)
 { type: 'REQKEY',
   key_identifier: 'aabbccdd...64hexchars',
   key_type: 'TAP_LEAF_XONLY_PUBKEY',
-  selector: { type: 'ALL' } }
-
-// Descriptor-derived key
-{ type: 'REQKEY',
-  key_type: 'TAP_LEAF_XONLY_PUBKEY',
-  use_descriptor: true, descriptor_template: 'tr(SIGBASH_XPUB/0/*)',
   selector: { type: 'ALL' } }
 ```
 

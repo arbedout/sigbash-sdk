@@ -76,7 +76,7 @@ Legend:
 
 Some parameter values are not available at policy-registration time and are resolved later:
 
-**At key-registration** — `SIGBASH_XPUB` in `descriptor_template` is replaced with the key's BIP-328 xpub. Conditions that accept `use_descriptor: true`: `INPUT_SOURCE_IS_IN_SETS`, `OUTPUT_DEST_IS_IN_SETS`, `DERIVED_NO_NEW_OUTPUTS`, `REQKEY`. Example templates: `tr(SIGBASH_XPUB/0/*)`, `wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)`.
+**At key-registration** — `SIGBASH_XPUB` in `descriptor_template` is replaced with the key's BIP-328 xpub. Conditions that accept `use_descriptor: true`: `INPUT_SOURCE_IS_IN_SETS`, `OUTPUT_DEST_IS_IN_SETS`, `DERIVED_NO_NEW_OUTPUTS`. Example templates: `tr(SIGBASH_XPUB/0/*)`, `wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)`.
 
 **At signing time** (PSBT-derived) — in BIP-443 data fields: `SIGBASH_INTERNAL_KEY`, `SIGBASH_OUTPUT_KEY`, `SIGBASH_NUMS_KEY`, `SIGBASH_COVENANT_STATE`. Index `-1` = same index as the input being signed. `script_tree_root: 'SELF'` = same taptree as current policy.
 
