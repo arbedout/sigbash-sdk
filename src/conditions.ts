@@ -666,15 +666,50 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
 
   TX_TEMPLATE_HASH_MATCHES: {
     description:
-      'Checks that the transaction matches a pre-committed template hash. ' +
+      'Checks that the transaction matches a pre-committed template. ' +
       'The template covers: version, locktime, input sequences, and outputs. ' +
-      'Any deviation (different amount, address, or sequence) will fail.',
+      'Any deviation (different amount, address, or sequence) will fail. ' +
+      'Provide the six raw fields below (or use conditionConfigToPoetPolicy, ' +
+      'which computes expected_template_hash from them automatically) — do ' +
+      'not hand-compute expected_template_hash yourself.',
     requiresSelector: false,
     params: {
-      template_hash: {
+      expected_template_hash: {
         type: 'string',
-        description: 'Hex-encoded 32-byte template hash pre-computed by the policy author.',
-        required: true,
+        description:
+          'Hex-encoded 32-byte committed template value. Normally computed ' +
+          'automatically by conditionConfigToPoetPolicy from n_version/' +
+          'n_locktime/sha_sequences/sha_outputs/annex_present/input_index — ' +
+          'only pass this directly if you already have a precomputed value.',
+        required: false,
+      },
+      n_version: {
+        type: 'number',
+        description: 'Transaction version this template requires.',
+        required: false,
+      },
+      n_locktime: {
+        type: 'number',
+        description: 'Transaction locktime this template requires.',
+        required: false,
+      },
+      sha_sequences: {
+        type: 'string',
+        description:
+          'Hex-encoded 32-byte SHA256 of all input nSequence values (BIP-341 sha_sequences).',
+        required: false,
+      },
+      sha_outputs: {
+        type: 'string',
+        description:
+          'Hex-encoded 32-byte SHA256 of all CTxOut-serialized outputs (BIP-341 sha_outputs).',
+        required: false,
+      },
+      annex_present: {
+        type: 'boolean',
+        description: 'Whether an annex is present (default false — annex support not implemented).',
+        required: false,
+        default: false,
       },
       input_index: {
         type: 'number',
@@ -685,7 +720,10 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
     },
     example: {
       type: 'TX_TEMPLATE_HASH_MATCHES',
-      template_hash: 'aabbccdd...64hexchars',
+      n_version: 2,
+      n_locktime: 0,
+      sha_sequences: 'aabbccdd...64hexchars',
+      sha_outputs: 'aabbccdd...64hexchars',
       input_index: 0,
     },
   },

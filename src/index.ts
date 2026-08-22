@@ -39,6 +39,13 @@ export type { PolicyTemplate, TemplateParam } from './templates';
 
 // Policy builder — converts conditionConfig to POET v1.1 policy
 export { conditionConfigToPoetPolicy } from './policy-builder';
+
+// TX_TEMPLATE_HASH_MATCHES commitment computation (normally invoked
+// automatically by conditionConfigToPoetPolicy — exported directly for
+// callers who need the raw committed value, e.g. to embed in a
+// precomputed-hash test fixture).
+export { computeTemplateHashCommitment } from './templatehash';
+export type { TemplateHashRawFields } from './templatehash';
 export type {
   ConditionConfig,
   LeafConditionConfig,

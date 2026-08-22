@@ -7,6 +7,7 @@
  */
 
 import type { POETPolicy, PolicyNode, OperatorNode, OperatorType } from './types';
+import { computeTemplateHashCommitment } from './templatehash';
 
 // ---------------------------------------------------------------------------
 // Input type definitions
@@ -207,6 +208,31 @@ function conditionConfigToPoetNode(config: ConditionConfig): PolicyNode {
     Object.assign(conditionParams, conditionParams['parameters']);
     delete conditionParams['parameters'];
   }
+
+  // TX_TEMPLATE_HASH_MATCHES: compute expected_template_hash from the six
+  // raw BIP-446 preimage fields (n_version/n_locktime/sha_sequences/
+  // sha_outputs/annex_present/input_index) if the caller supplied them and
+  // didn't already pass a precomputed expected_template_hash — the same
+  // "raw semantic params in, SDK computes the commitment" pattern every
+  // other covenant condition in this SDK already follows. Users must not be
+  // asked to hand-compute the GF(2^128) polynomial commitment themselves
+  // (see templatehash.ts).
+  if (
+    cfg['type'] === 'TX_TEMPLATE_HASH_MATCHES' &&
+    conditionParams['expected_template_hash'] == null &&
+    conditionParams['sha_sequences'] != null &&
+    conditionParams['sha_outputs'] != null
+  ) {
+    conditionParams['expected_template_hash'] = computeTemplateHashCommitment({
+      nVersion: (conditionParams['n_version'] as number) ?? 2,
+      nLockTime: (conditionParams['n_locktime'] as number) ?? 0,
+      shaSequences: conditionParams['sha_sequences'] as string,
+      shaOutputs: conditionParams['sha_outputs'] as string,
+      annexPresent: (conditionParams['annex_present'] as boolean) ?? false,
+      inputIndex: (conditionParams['input_index'] as number) ?? 0,
+    });
+  }
+
   const leafNode: PolicyNode = {
     type: 'condition',
     conditionType: cfg['type'] as string,
