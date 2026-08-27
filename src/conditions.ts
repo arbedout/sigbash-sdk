@@ -418,14 +418,37 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
     params: {
       key_identifier: {
         type: 'string',
-        description: '64-char hex x-only public key (32 bytes). Use TAP_LEAF_XONLY_PUBKEY for Taproot.',
-        required: true,
+        description: '64-char hex x-only public key (32 bytes). Use TAP_LEAF_XONLY_PUBKEY for Taproot. ' +
+          'Required unless use_descriptor is true.',
+        required: false,
       },
       key_type: {
         type: 'string',
-        description: 'Key domain — determines how the key is extracted from the spending path.',
-        required: true,
+        description: 'Key domain — determines how the key is extracted from the spending path. ' +
+          'Not required when use_descriptor is true.',
+        required: false,
         enum: ['TAP_LEAF_XONLY_PUBKEY', 'TAP_LEAF_SCRIPT_HASH'],
+      },
+      use_descriptor: {
+        type: 'boolean',
+        description: 'When true, the candidate signing keys are derived from descriptor_template ' +
+          'at key-registration time instead of a single fixed key_identifier. At most one ' +
+          'descriptor-mode REQKEY condition is permitted per policy, and no other REQKEY condition ' +
+          '(descriptor or fixed-key) may appear alongside it.',
+        required: false,
+      },
+      descriptor_template: {
+        type: 'string',
+        description: 'BIP-328 descriptor template with SIGBASH_XPUB placeholder for candidate-key ' +
+          'derivation at key-registration time. Required when use_descriptor is true.',
+        required: false,
+      },
+      derivation_range: {
+        type: 'number',
+        description: 'Number of candidate keys to derive (default 512, max 512). This condition uses ' +
+          'a depth-9 Merkle-membership gadget, a smaller cap than other descriptor-mode conditions.',
+        required: false,
+        default: 512,
       },
     },
     example: {

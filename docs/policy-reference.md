@@ -197,6 +197,7 @@ Conditions that support descriptor mode (enabled by `use_descriptor: true`):
 | `INPUT_SOURCE_IS_IN_SETS` | Permitted input source addresses |
 | `OUTPUT_DEST_IS_IN_SETS` | Permitted output destination addresses |
 | `DERIVED_NO_NEW_OUTPUTS` | Allowed output address set (wallet self-consolidation) |
+| `REQKEY` | Candidate signing-key set (see note below — smaller range cap) |
 
 Common descriptor templates:
 
@@ -211,6 +212,14 @@ The optional `derivation_range` parameter (default 1000, range 20–10000) is th
 the descriptor and treated as part of the wallet. The same set is also what gets
 proved against in the ZK set-membership circuit, so larger ranges mean larger
 proofs.
+
+**`REQKEY` uses a smaller range.** Descriptor-mode `REQKEY` checks candidate
+keys through a dedicated depth-9 Merkle-membership gadget, capping
+`derivation_range` at **512** (default `512` when omitted) — not the
+20–10,000 range above. A `derivation_range` over 512 is rejected at
+`createKey()` time. Only one `REQKEY` condition (descriptor or fixed-key) may
+appear per policy when descriptor mode is used — a second `REQKEY` condition
+of either shape alongside it is also rejected at `createKey()` time.
 
 ### Resolved at signing time — BIP-443 data placeholders
 
@@ -473,9 +482,12 @@ Proves that a specific key is present in the tapscript spending path, using a ze
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `key_identifier` | `string` | yes | 64-char hex x-only public key (32 bytes) |
-| `key_type` | `string` | yes | `'TAP_LEAF_XONLY_PUBKEY'` or `'TAP_KEYPATH_OUTPUTKEY'` |
+| `key_identifier` | `string` | conditional | 64-char hex x-only public key (32 bytes). Required unless `use_descriptor` is `true` |
+| `key_type` | `string` | conditional | `'TAP_LEAF_XONLY_PUBKEY'` or `'TAP_KEYPATH_OUTPUTKEY'`. Not required when `use_descriptor` is `true` |
 | `selector` | `{ type: 'ALL' \| 'ANY' \| 'INDEX', index?: number }` | yes | How the key requirement is matched across the spending paths. `{ type: 'ALL' }` is the canonical default — see note below |
+| `use_descriptor` | `boolean` | no | When `true`, the candidate signing-key set is derived from `descriptor_template` at key-registration time instead of a single fixed `key_identifier` |
+| `descriptor_template` | `string` | conditional | BIP-328 descriptor template with `SIGBASH_XPUB` placeholder. Required when `use_descriptor` is `true` |
+| `derivation_range` | `number` | no (default `512`) | Number of candidate keys to derive. Capped at **512** — see [Runtime-resolved placeholders](#resolved-at-key-registration-time--sigbash_xpub) |
 
 **`key_type` plain-english:** `'TAP_LEAF_XONLY_PUBKEY'` is the **script-path** flavour
 — it proves the given key appears as an x-only pubkey inside a tapscript leaf
@@ -492,6 +504,22 @@ spending key".
   key_type: 'TAP_LEAF_XONLY_PUBKEY',
   selector: { type: 'ALL' } }
 ```
+
+**Descriptor mode** — the signer's wallet key isn't known in advance, so the
+candidate signing-key set is derived from a descriptor template at
+key-registration time instead:
+
+```typescript
+{ type: 'REQKEY',
+  use_descriptor: true,
+  descriptor_template: 'tr(SIGBASH_XPUB/0/*)',
+  derivation_range: 512,
+  selector: { type: 'ALL' } }
+```
+
+A descriptor-mode `REQKEY` condition must be the only `REQKEY` condition in
+the policy, and `derivation_range` may not exceed 512 — both are enforced at
+`createKey()` time and again by the compiler.
 
 ---
 

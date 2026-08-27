@@ -57,7 +57,7 @@ Legend:
 | `INPUT_SIGHASH_TYPE` | `selector`, `sighash_type` | Sighash type (`SIGHASH_ALL` `SIGHASH_NONE` `SIGHASH_SINGLE` + `ANYONECANPAY_*` variants) |
 | `OUTPUT_DEST_IS_IN_SETS` | `addresses[]`, `network`, `selector` | Output destination in approved address set; wrap in NOT for blocklist |
 | `INPUT_SOURCE_IS_IN_SETS` | `addresses[]` or `descriptor_template`+`use_descriptor`, `network`, `selector` | Input source in permitted address set |
-| `REQKEY` | `key_identifier` (64-hex x-only pubkey), `key_type` (`TAP_LEAF_XONLY_PUBKEY` \| `TAP_KEYPATH_OUTPUTKEY`) | Key required in tapscript path[^1] |
+| `REQKEY` | `key_identifier` (64-hex x-only pubkey), `key_type` (`TAP_LEAF_XONLY_PUBKEY` \| `TAP_KEYPATH_OUTPUTKEY`); optional `use_descriptor`+`descriptor_template` (max `derivation_range` **512**, smaller than other descriptor conditions; at most one `REQKEY` condition per policy in descriptor mode) | Key required in tapscript path[^1] |
 | `COUNT_BASED_CONSTRAINT` | `max_uses`, `reset_interval` (`never` `daily` `weekly` `monthly`), `reset_type` (`rolling` \| `calendar`) | Rate-limit signing sessions via nullifier counter |
 | `TIME_BASED_CONSTRAINT` | `constraint_type` (`after` \| `before` \| `within`); for `within`: `active_days[]` (1=Mon…7=Sun), `start_hour`, `end_hour`, `start_time`, `end_time`, `start_date_within`, `end_date_within` | Wall-clock window restriction |
 | `OUTPUT_OP_RETURN` | `selector` | OP_RETURN output present |
@@ -76,7 +76,7 @@ Legend:
 
 Some parameter values are not available at policy-registration time and are resolved later:
 
-**At key-registration** — `SIGBASH_XPUB` in `descriptor_template` is replaced with the key's BIP-328 xpub. Conditions that accept `use_descriptor: true`: `INPUT_SOURCE_IS_IN_SETS`, `OUTPUT_DEST_IS_IN_SETS`, `DERIVED_NO_NEW_OUTPUTS`. Example templates: `tr(SIGBASH_XPUB/0/*)`, `wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)`.
+**At key-registration** — `SIGBASH_XPUB` in `descriptor_template` is replaced with the key's BIP-328 xpub. Conditions that accept `use_descriptor: true`: `INPUT_SOURCE_IS_IN_SETS`, `OUTPUT_DEST_IS_IN_SETS`, `DERIVED_NO_NEW_OUTPUTS`, `REQKEY` (`REQKEY`'s `derivation_range` caps at 512, not the 20–10,000 range the others use). Example templates: `tr(SIGBASH_XPUB/0/*)`, `wpkh(SIGBASH_XPUB/84h/1h/0h/0/*)`.
 
 **At signing time** (PSBT-derived) — in BIP-443 data fields: `SIGBASH_INTERNAL_KEY`, `SIGBASH_OUTPUT_KEY`, `SIGBASH_NUMS_KEY`, `SIGBASH_COVENANT_STATE`. Index `-1` = same index as the input being signed. `script_tree_root: 'SELF'` = same taptree as current policy.
 

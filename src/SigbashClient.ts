@@ -275,6 +275,63 @@ function normalisePolicy(node: unknown): unknown {
   return n;
 }
 
+// REQKEY descriptor mode resolves to a set of candidate keys checked through
+// one depth-9 Merkle-membership gadget in-circuit — a smaller cap than other
+// descriptor-mode conditions (which use a depth-10, 1000-key gadget).
+const REQKEY_DESCRIPTOR_MAX_DERIVATION_RANGE = 512;
+
+/**
+ * Collects the conditionParams of every REQKEY condition anywhere in a POET
+ * policy tree, walking the same node shape normalisePolicy walks (a
+ * 'condition' node has conditionType/conditionParams; an operator node has
+ * a 'children' array).
+ */
+function collectReqkeyParams(node: unknown, out: Record<string, unknown>[]): void {
+  if (!node || typeof node !== 'object') return;
+  const n = node as Record<string, unknown>;
+  if (n['type'] === 'condition' && n['conditionType'] === 'REQKEY' &&
+      n['conditionParams'] && typeof n['conditionParams'] === 'object') {
+    out.push(n['conditionParams'] as Record<string, unknown>);
+  }
+  if (Array.isArray(n['children'])) {
+    for (const child of n['children'] as unknown[]) collectReqkeyParams(child, out);
+  }
+}
+
+/**
+ * Client-side mirror of the WASM compile-time REQKEY descriptor-mode guards
+ * (sole-atom + range cap). This is defense-in-depth only — the WASM compiler
+ * enforces the same rules authoritatively — but it surfaces a clear error
+ * before a round trip to the server/WASM layer.
+ */
+function validateReqkeyDescriptorConstraints(root: unknown): void {
+  const reqkeyParams: Record<string, unknown>[] = [];
+  collectReqkeyParams(root, reqkeyParams);
+
+  const descriptorAtoms = reqkeyParams.filter(p => p['use_descriptor'] === true);
+  if (descriptorAtoms.length > 1) {
+    throw new PolicyCompileError(
+      'REQKEY: multiple descriptor-mode conditions found — only one descriptor-mode REQKEY ' +
+        'condition is permitted per policy'
+    );
+  }
+  if (descriptorAtoms.length === 1 && reqkeyParams.length > 1) {
+    throw new PolicyCompileError(
+      `REQKEY: a condition with use_descriptor=true must be the only REQKEY condition in the ` +
+        `policy (found ${reqkeyParams.length} REQKEY conditions total)`
+    );
+  }
+  for (const params of descriptorAtoms) {
+    const range = params['derivation_range'];
+    if (typeof range === 'number' && range > REQKEY_DESCRIPTOR_MAX_DERIVATION_RANGE) {
+      throw new PolicyCompileError(
+        `REQKEY descriptor condition: derivation_range ${range} exceeds the depth-9 Merkle ` +
+          `gadget's ${REQKEY_DESCRIPTOR_MAX_DERIVATION_RANGE}-key capacity`
+      );
+    }
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // SigbashClient
@@ -863,6 +920,10 @@ export class SigbashClient {
     // Normalise conditionParams — convert string enums, booleans, and selectors
     // to the numeric/object forms the WASM constraint evaluator requires.
     normalisePolicy(poetPolicy?.policy);
+
+    // Client-side mirror of the WASM compile-time REQKEY descriptor-mode
+    // guards — defense-in-depth only, see validateReqkeyDescriptorConstraints.
+    validateReqkeyDescriptorConstraints(poetPolicy?.policy);
 
     // ---------------------------------------------------------------------------
     // Step 1 — Ensure client MuSig2 keypair is initialised.
