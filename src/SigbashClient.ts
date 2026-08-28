@@ -1632,6 +1632,12 @@ export class SigbashClient {
         errMsg.includes('failed to extract constraints from PathLeaf') ||
         errMsg.includes('MATCH_ARK_FORFEIT: connector input[1] must be a keyspend') ||
         errMsg.includes('one or more scripts are not in the allowlist') ||
+        // The observed signing key does not match a registered REQKEY
+        // descriptor-mode candidate — a policy-not-satisfied outcome (the
+        // real key differs from what's registered), detected server-side by
+        // Moon's per-input weld-commitment cross-check rather than a
+        // client-side pre-check.
+        errMsg.includes('REQKEY-descriptor weld commitment mismatch') ||
         // A well-formed PSBT that spends only segwit-v0 (P2WSH/P2WPKH) inputs is
         // unsignable by contract, not an infrastructure fault: Sigbash keys only
         // ever live on a Taproot spending path. verifyPSBT reports this exact
