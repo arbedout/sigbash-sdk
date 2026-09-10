@@ -1106,6 +1106,8 @@ export class SigbashClient {
       client_key_commitment_h1?: string;
       client_key_hash?: string;
       policy_root_hex?: string;
+      registration_mask_slot0?: string;
+      registration_mask_slot1?: string;
       error?: string;
     };
 
@@ -1175,6 +1177,15 @@ export class SigbashClient {
         require_2fa: options.require2FA,
         client_key_commitment_h1: this.#commitmentH1,
         client_key_hash: this.#keyHash,
+        // Compiled-policy transparency: the server recomputes the registration
+        // masks from this exact policy input and rejects the submission when
+        // the declared words diverge. Both fields come from the WASM's
+        // canonical scan — the SDK relays them verbatim and never logs them.
+        compiled_policy_json: compiledPolicyJSON,
+        registration_masks: {
+          slot0: aggregateResult.registration_mask_slot0,
+          slot1: aggregateResult.registration_mask_slot1,
+        },
         enc_kek2,
         ...(options.updateable === true ? { updateable: true } : {}),
       });
