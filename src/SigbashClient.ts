@@ -1256,6 +1256,8 @@ export class SigbashClient {
       key_index: opts?.keyIndex ?? 0,
     });
 
+    this._validateKmcResponseIdentity(keyId, opts?.keyIndex, response);
+
     if (!response.encrypted_key_material) {
       throw new SigbashSDKError('No encrypted_key_material in server response', 'NO_KEY_MATERIAL');
     }
@@ -2041,6 +2043,40 @@ export class SigbashClient {
     return { ...basePayload, _sigbash_sig: sig.value };
   }
 
+  /**
+   * Defense-in-depth key-identity check for get_encrypted_kmc responses: the
+   * server resolves the key by key_id, so a well-formed response carries the
+   * matching key_index. A mismatch can only be response cross-talk or a server
+   * fault — reject it rather than hand the caller another key's material.
+   * A missing or non-numeric key_index is tolerated (older servers), since the
+   * request-level correlation ID already covers response pairing there.
+   */
+  private _validateKmcResponseIdentity(
+    keyId: string,
+    optsKeyIndex: number | undefined,
+    response: GetKMCResponse,
+  ): void {
+    const returned = typeof response.key_index === 'number' ? response.key_index : NaN;
+    if (Number.isNaN(returned)) return;
+
+    const requestedId = Number.parseInt(keyId, 10);
+    if (Number.isInteger(requestedId)) {
+      if (requestedId !== returned) {
+        throw new SigbashSDKError(
+          `Key identity mismatch: requested key_id ${keyId} but response carries key_index ${returned}`,
+          'KEY_IDENTITY_MISMATCH'
+        );
+      }
+      return;
+    }
+    if (optsKeyIndex !== undefined && optsKeyIndex !== returned) {
+      throw new SigbashSDKError(
+        `Key identity mismatch: requested key_index ${optsKeyIndex} but response carries key_index ${returned}`,
+        'KEY_IDENTITY_MISMATCH'
+      );
+    }
+  }
+
   private _requireSocket(): SigbashSocket {
     if (this._socket === null) {
       // Flag to ensure private_logs is sent only on the first connection
@@ -2434,6 +2470,8 @@ export class SigbashClient {
       key_index: opts?.keyIndex ?? 0,
     });
 
+    this._validateKmcResponseIdentity(keyId, opts?.keyIndex, response);
+
     if (!response.encrypted_key_material) {
       throw new SigbashSDKError('No encrypted_key_material in server response', 'NO_KEY_MATERIAL');
     }
@@ -2549,6 +2587,8 @@ export class SigbashClient {
         key_id: recoveryKit.keyId,
         key_index: 0,
       });
+
+      this._validateKmcResponseIdentity(recoveryKit.keyId, undefined, response);
 
       if (!response.encrypted_key_material) {
         throw new SigbashSDKError('No encrypted_key_material in server response', 'NO_KEY_MATERIAL');

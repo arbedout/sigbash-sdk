@@ -40,7 +40,9 @@ import { execSync } from 'child_process';
 // Environment variables
 // ---------------------------------------------------------------------------
 
-const SERVER_URL = process.env['SIGBASH_TEST_SERVER_URL'] ?? 'https://www.sigbash.com';
+// Live tiers run only when a test server is named; the documented skip contract
+// below depends on this staying undefined (no production fallback).
+const SERVER_URL = process.env['SIGBASH_TEST_SERVER_URL'];
 // When no API key is provided via env, generate a timestamped key so this run is
 // always the first user in its org → auto-registers as admin on first createKey.
 const API_KEY = process.env['SIGBASH_TEST_API_KEY'] ?? `test-api-key-${Date.now()}`;
