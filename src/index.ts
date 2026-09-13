@@ -143,7 +143,7 @@ export type { WasmVersionMetadata } from './version-metadata';
 export { buildWasmUrl, sha384ToBase64, formatSRIHash } from './version-metadata';
 
 // SDK version
-export const SDK_VERSION = '0.8.0';
+export const SDK_VERSION = '0.8.1';
 
 // Arkade integration — @arkade-os/ts-sdk Identity bridge
 export {

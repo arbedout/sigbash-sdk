@@ -2815,12 +2815,20 @@ export class SigbashClient {
       throw new SigbashSDKError('WASM updatePolicy function is not available', 'WASM_ERROR');
     }
 
+    // Derive the same deterministic seed used by createKey() and signPSBT().
+    // Passing it lets the WASM restore the global SeedManager in a fresh
+    // process, so the policy-compilation salt comes from the same
+    // credential-triplet seed in every session and the new policy root is
+    // reproducible.
+    const seedHex = await derivePolicySalt(this._apiKey, this._userKey, this._userSecretKey);
+
     const wasmResult = JSON.parse(
       updatePolicyFn(
         JSON.stringify({
           kmc_json: keyResult.kmcJSON,
           new_policy_json: policyJson,
           network: decryptedKmc.network,
+          seed_hex: seedHex,
         })
       )
     ) as { error?: string; new_kmc_json?: string; new_policy_root_hex?: string };

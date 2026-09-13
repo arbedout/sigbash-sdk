@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-09-13
+
+### Fixed
+
+- **Concurrent socket requests could consume each other's responses.** The
+  per-request `once()` listeners resolved on whichever response arrived
+  first, so two overlapping requests over one connection could swap
+  payloads. Every object payload now carries a correlation ID the server
+  echoes back: responses resolve exactly the matching pending request, late
+  or duplicate responses are dropped, and an untagged error still rejects
+  every pending request connection-wide (older servers without the echo
+  keep the historical FIFO pairing). Awaiting `get_encrypted_kmc`
+  responses additionally validate the returned `key_index` against the
+  requested key — a mismatch throws `KEY_IDENTITY_MISMATCH` instead of
+  handing the caller another key's material.
+- **`updatePolicy()` works in a fresh process.** It never passed seed
+  material to the WASM layer, so the documented create-then-update flow
+  failed with `SeedManager not initialized` unless an earlier create or
+  sign in the same process had happened to initialize it. `updatePolicy()`
+  now derives and passes the same deterministic seed as `createKey()` and
+  `signPSBT()`, so the policy-compilation salt — and therefore the new
+  policy root — is reproducible across sessions.
+
+### Tests / tooling
+
+- The jest harness now transpiles the ESM-only `@noble/ed25519` to
+  CommonJS; suites importing `SigbashClient` no longer fail to parse.
+- The client integration suite skips its live tiers unless
+  `SIGBASH_TEST_SERVER_URL` is set, matching its documented contract —
+  plain `npm test` no longer reaches for a production server. New
+  `updatePolicy.test.ts` covers the seed-restoration fix on the same
+  tier contract.
+
 ## [0.8.0] — 2026-08-19
 
 ### Security
