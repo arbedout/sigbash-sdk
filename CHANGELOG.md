@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-09-15
+
+### Fixed
+
+- **Policy-builder guidance no longer advertises vacuous negations.** The
+  OUTPUT_DEST_IS_IN_SETS description now states the enforced negation set
+  (INPUT_SOURCE_IS_IN_SETS, OUTPUT_DEST_IS_IN_SETS, OUTPUT_OP_RETURN,
+  fixed-key REQKEY; at most one negated family per policy) and carries the
+  enforcement caveat for negated families.
+
+### Tests
+
+- `errors.test.ts` instanceof assertions for the modern error classes now
+  check `SigbashSDKError` (the documented base) instead of `SigbashError`.
+- `wasm-loader.integration.test.ts` skips cleanly when the compiled wasm
+  artifact is absent (fresh clone) instead of failing with ENOENT.
+
+
 ## [0.8.1] — 2026-09-13
 
 ### Fixed

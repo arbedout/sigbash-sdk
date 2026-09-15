@@ -14,7 +14,13 @@ const wasmVersionPath = path.resolve(__dirname, '../wasm-version.json');
 const wasmVersion: { sha384: string } = JSON.parse(fs.readFileSync(wasmVersionPath, 'utf-8'));
 const EXPECTED_WASM_SHA384 = Buffer.from(wasmVersion.sha384, 'base64').toString('hex');
 
-describe('WASM Loader Integration Tests', () => {
+// The compiled artifact is produced by the wasm build, not committed, so this
+// suite skips cleanly on a fresh clone instead of failing with ENOENT.
+const describeWithWasmArtifact = fs.existsSync(path.resolve(__dirname, '../wasm/sigbash.wasm'))
+  ? describe
+  : describe.skip;
+
+describeWithWasmArtifact('WASM Loader Integration Tests', () => {
   const wasmPath = path.resolve(__dirname, '../wasm/sigbash.wasm');
 
   describe('Real WASM Loading', () => {

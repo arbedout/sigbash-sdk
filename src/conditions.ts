@@ -329,7 +329,11 @@ export const CONDITION_TYPES: Record<string, ConditionTypeSpec> = {
   OUTPUT_DEST_IS_IN_SETS: {
     description:
       'Checks that the destination address(es) of one or more outputs are in an approved set. ' +
-      'Use NOT(OUTPUT_DEST_IS_IN_SETS) for a blocklist.',
+      'Use NOT(OUTPUT_DEST_IS_IN_SETS) for a blocklist. Negation is enforced ' +
+      'only for INPUT_SOURCE_IS_IN_SETS, OUTPUT_DEST_IS_IN_SETS, ' +
+      'OUTPUT_OP_RETURN and fixed-key REQKEY, at most one negated family per ' +
+      'policy; negated enforcement rides fact wires whose commitment does not ' +
+      'yet bind against a malicious prover (forgeable by salt compensation).',
     requiresSelector: true,
     params: {
       addresses: {

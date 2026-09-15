@@ -57,17 +57,17 @@ describe('instanceof checks', () => {
     expect(err).toBeInstanceOf(Error);
   });
 
-  it('PolicyValidationError is instanceof PolicyValidationError, SigbashError, and Error', () => {
+  it('PolicyValidationError is instanceof PolicyValidationError, SigbashSDKError, and Error', () => {
     const err = new PolicyValidationError('msg', sampleIssues);
     expect(err).toBeInstanceOf(PolicyValidationError);
-    expect(err).toBeInstanceOf(SigbashError);
+    expect(err).toBeInstanceOf(SigbashSDKError);
     expect(err).toBeInstanceOf(Error);
   });
 
-  it('AuthenticationError is instanceof AuthenticationError, SigbashError, and Error', () => {
+  it('AuthenticationError is instanceof AuthenticationError, SigbashSDKError, and Error', () => {
     const err = new AuthenticationError('msg');
     expect(err).toBeInstanceOf(AuthenticationError);
-    expect(err).toBeInstanceOf(SigbashError);
+    expect(err).toBeInstanceOf(SigbashSDKError);
     expect(err).toBeInstanceOf(Error);
   });
 
@@ -78,10 +78,10 @@ describe('instanceof checks', () => {
     expect(err).toBeInstanceOf(Error);
   });
 
-  it('NetworkMismatchError is instanceof NetworkMismatchError, SigbashError, and Error', () => {
+  it('NetworkMismatchError is instanceof NetworkMismatchError, SigbashSDKError, and Error', () => {
     const err = new NetworkMismatchError('mainnet', 'signet');
     expect(err).toBeInstanceOf(NetworkMismatchError);
-    expect(err).toBeInstanceOf(SigbashError);
+    expect(err).toBeInstanceOf(SigbashSDKError);
     expect(err).toBeInstanceOf(Error);
   });
 
@@ -92,10 +92,10 @@ describe('instanceof checks', () => {
     expect(err).toBeInstanceOf(Error);
   });
 
-  it('ServerError is instanceof ServerError, SigbashError, and Error', () => {
+  it('ServerError is instanceof ServerError, SigbashSDKError, and Error', () => {
     const err = new ServerError('msg');
     expect(err).toBeInstanceOf(ServerError);
-    expect(err).toBeInstanceOf(SigbashError);
+    expect(err).toBeInstanceOf(SigbashSDKError);
     expect(err).toBeInstanceOf(Error);
   });
 
