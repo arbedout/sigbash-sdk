@@ -111,17 +111,19 @@ const policy = conditionConfigToPoetPolicy({
 });
 
 // Register a key with the policy
-const { keyId, bip328Xpub, aggregatePubKeyHex, p2trAddress } = await client.createKey({
+const { keyId, bip328Xpub, bip328Descriptor, aggregatePubKeyHex, p2trAddress } = await client.createKey({
   policy,
   network:    'signet',   // 'signet' is the default; mainnet is gated — see AGENTS.md / contact sales
   require2FA: false,      // whether 2FA is required at signing time
 });
-console.log('BIP-328 xpub:', bip328Xpub);
-// Import this xpub into a descriptor or multisig wallet of your choice to fund the key.
-// `aggregatePubKeyHex` is also returned for advanced multisig integration.
+console.log('Export descriptor:', bip328Descriptor);
+// Import this checksummed descriptor (tr([fp]xpub/*)#<checksum>) into a
+// descriptor-aware watch-only wallet to fund the key; the display address is
+// index 0 of it. `bip328Xpub` and `aggregatePubKeyHex` are also returned for
+// advanced descriptor authoring and multisig integration.
 //
 // WARNING: do NOT fund `p2trAddress` directly — it is a single-derivation helper,
-// not the funding entry point. Always derive receive addresses from the xpub.
+// not the funding entry point. Always derive receive addresses from the descriptor.
 
 // Retrieve key material (needed for signing). `kmcJSON` is the encrypted
 // client-held key-material container; pass it back into `signPSBT()` so WASM

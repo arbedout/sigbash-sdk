@@ -84,27 +84,35 @@ The full operator and condition vocabulary is documented in
 [policy-reference.md](policy-reference.md).
 
 > **Next step:** whichever construction path you used, `createKey()` returns
-> a `keyId` and `bip328Xpub`. Use the `keyId` (plus `kmcJSON` from
-> `getKey(keyId, { verbose: true })`) for signing — see [signing.md](signing.md).
-> Use the `bip328Xpub` for funding the key, covered next.
+> a `keyId`, a `bip328Xpub`, and a `bip328Descriptor`. Use the `keyId` (plus
+> `kmcJSON` from `getKey(keyId, { verbose: true })`) for signing — see
+> [signing.md](signing.md). Use the `bip328Descriptor` for wallet import,
+> covered next.
 
 ---
 
 ## Funding the key
 
-`createKey()` returns a `bip328Xpub` you can import into a watch-only wallet to
-derive receive addresses and fund the key. The canonical single-sig descriptor
-is taproot keypath:
+`createKey()` returns a `bip328Descriptor` — a checksummed output descriptor you
+can import into a descriptor-aware watch-only wallet (Bitcoin Core, Nunchuk,
+Sparrow, ...) to derive receive addresses and fund the key:
 
 ```
-tr(<bip328Xpub>/0/*)
+tr([fp]<bip328Xpub>/*)#<checksum>
 ```
+
+Depth-1 is the canonical family: the key's pre-generated display address
+(`p2trAddress`) is index 0 of this descriptor, so funding index 0 lands exactly
+where the system expects it. If you are working with a key created before the
+descriptor field existed, build the same descriptor from `bip328Xpub` — the
+checksum comes from the BIP-380 descriptor checksum algorithm (Bitcoin Core's
+`getdescriptorinfo` computes it for you).
 
 For multisig setups that combine the Sigbash key with other co-signer keys,
 use a BIP-386 tapscript multisig descriptor with `sortedmulti_a`:
 
 ```
-tr(<internal_key>,sortedmulti_a(<k>,<bip328Xpub>/0/*,<cosigner1Xpub>/0/*,<cosigner2Xpub>/0/*))
+tr(<internal_key>,sortedmulti_a(<k>,<bip328Xpub>/*,<cosigner1Xpub>/*,<cosigner2Xpub>/*))
 ```
 
 Use `sortedmulti_a` for tapscript (BIP-386); `sortedmulti` is the SegWit-era

@@ -244,6 +244,14 @@ export interface KeySummary {
   policyRoot: string;
   /** BIP-328 xpub for deriving the P2TR address. */
   bip328Xpub: string;
+  /**
+   * Checksummed depth-1 taproot export descriptor tr([fp]xpub/*)#<checksum>,
+   * ready for watch-only import into descriptor-aware wallets. Depth-1 is the
+   * canonical family: the display address is index 0 of this descriptor.
+   * Absent for keys created before the field existed — derive the descriptor
+   * from bip328Xpub in that case.
+   */
+  bip328Descriptor?: string;
   /** Compiled POET policy as a parsed JSON object. */
   poetJSON: object;
   /** Whether the admin can replace this key's policy via updatePolicy(). */
@@ -293,6 +301,13 @@ export interface CreateKeyResult {
    * Populated by SigbashWASM_AggregateAndBuildKMC after key creation.
    */
   bip328Xpub?: string;
+  /**
+   * Checksummed depth-1 taproot export descriptor tr([fp]xpub/*)#<checksum>,
+   * ready for watch-only import into descriptor-aware wallets. Depth-1 is the
+   * canonical family: the display address is index 0 of this descriptor.
+   * Populated by SigbashWASM_AggregateAndBuildKMC after key creation.
+   */
+  bip328Descriptor?: string;
 }
 
 /**

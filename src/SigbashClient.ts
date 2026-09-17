@@ -861,6 +861,7 @@ export class SigbashClient {
     return items.map((item, i) => ({
       ...item,
       bip328Xpub: summaries[i].bip328Xpub,
+      bip328Descriptor: summaries[i].bip328Descriptor,
       poetJSON: summaries[i].poetJSON,
     }));
   }
@@ -1103,6 +1104,7 @@ export class SigbashClient {
       internal_public_key_hex?: string;
       p2tr_address?: string;
       bip328_xpub?: string;
+      bip328_descriptor?: string;
       client_key_commitment_h1?: string;
       client_key_hash?: string;
       policy_root_hex?: string;
@@ -1196,6 +1198,7 @@ export class SigbashClient {
 
     const keyIndex = options.keyIndex ?? 0;
     const bip328Xpub = aggregateResult.bip328_xpub ?? '';
+    const bip328Descriptor = (aggregateResult.bip328_descriptor as string | undefined) ?? undefined;
 
     if (!options.verbose) {
       return {
@@ -1203,6 +1206,7 @@ export class SigbashClient {
         keyIndex,
         policyRoot,
         bip328Xpub,
+        bip328Descriptor,
         poetJSON: _extractPoetJSON(kmc),
         updateable: options.updateable === true,
       };
@@ -1217,6 +1221,7 @@ export class SigbashClient {
       p2trAddress: aggregateResult.p2tr_address,
       aggregatePubKeyHex: aggregateResult.aggregate_public_key_hex,
       bip328Xpub,
+      bip328Descriptor,
     };
   }
 
@@ -1309,6 +1314,7 @@ export class SigbashClient {
         keyIndex,
         policyRoot: response.policy_root,
         bip328Xpub: (kmcObj.bip328_xpub as string) ?? '',
+        bip328Descriptor: (kmcObj.bip328_descriptor as string | undefined) ?? undefined,
         poetJSON: _extractPoetJSON(kmc),
         updateable: response.updateable ?? false,
       };
