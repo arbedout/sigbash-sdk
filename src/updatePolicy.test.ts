@@ -1,9 +1,14 @@
 /**
  * updatePolicy seed-restoration tests.
  *
- * Both legs need the real WASM binary, and the SDK has no local wasm source,
- * so both run only against a live test server (SIGBASH_TEST_SERVER_URL) —
- * skipped gracefully otherwise. The fail-closed leg must run before any
+ * Tier 0 — no server required: the transparency attestation contract. The
+ *          PATCH body must carry compiled_policy_sha256 beside the new policy
+ *          root, and a wasm result without the attestation must fail closed
+ *          before any request is issued.
+ *
+ * Both live legs need the real WASM binary, and the SDK has no local wasm
+ * source, so they run only against a live test server (SIGBASH_TEST_SERVER_URL)
+ * — skipped gracefully otherwise. The fail-closed leg must run before any
  * parent-process call that would initialize the global SeedManager.
  *
  * Tier 1 — live server, no key required: the raw WASM updatePolicy export
@@ -96,5 +101,121 @@ beforeAll(async () => {
     expect(updated.bip328Xpub).toBe(created.bip328Xpub);
     expect(updated.policyRoot).toBeDefined();
     expect(updated.policyUpdateCount ?? 1).toBe((after.policyUpdateCount ?? 0) + 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tier 0 — transparency attestation contract (no server, no wasm)
+// ---------------------------------------------------------------------------
+
+const ATTESTED_SHA256 = '6c096ff157e0038408994eb90380eabaa220493e9004b0fbd93a0a07f8a17f45';
+const FAKE_ROOT = 'f'.repeat(64);
+
+function stubClient(): SigbashClient {
+  return new SigbashClient({
+    serverUrl: 'https://unit.test',
+    apiKey: 'a'.repeat(64),
+    userKey: 'b'.repeat(64),
+    userSecretKey: 'c'.repeat(40),
+  });
+}
+
+type CapturedRequest = { input: string; method: string; body: Record<string, unknown> };
+
+function stubWire(): { requests: CapturedRequest[] } {
+  const requests: CapturedRequest[] = [];
+  jest.spyOn(
+    SigbashClient.prototype as unknown as Record<string, unknown>,
+    '_authedFetch',
+  ).mockImplementation(async (input: unknown, init?: { method?: string; body?: string }) => {
+    requests.push({
+      input: String(input),
+      method: (init?.method ?? 'GET').toUpperCase(),
+      body: init?.body ? JSON.parse(init.body) : {},
+    });
+    return { ok: true, status: 200, json: async () => ({ success: true }) } as unknown as Response;
+  });
+  return { requests };
+}
+
+function stubWasmUpdate(result: Record<string, unknown>): jest.Mock {
+  const wasmStub = jest.fn(() => JSON.stringify(result));
+  (globalThis as unknown as Record<string, unknown>)['updatePolicy'] = wasmStub;
+  return wasmStub;
+}
+
+describe('updatePolicy transparency attestation (no server)', () => {
+  const originalUpdatePolicy = (globalThis as unknown as Record<string, unknown>)['updatePolicy'];
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalUpdatePolicy === undefined) {
+      delete (globalThis as unknown as Record<string, unknown>)['updatePolicy'];
+    } else {
+      (globalThis as unknown as Record<string, unknown>)['updatePolicy'] = originalUpdatePolicy;
+    }
+  });
+
+  it('sends compiled_policy_sha256 beside new_policy_root on the PATCH', async () => {
+    const fakeKmc = { network: 'signet' };
+    jest.spyOn(
+      SigbashClient.prototype as unknown as Record<string, unknown>,
+      'getKey',
+    ).mockResolvedValue({
+      keyId: '3',
+      policyRoot: FAKE_ROOT,
+      network: 'signet',
+      require2FA: false,
+      keyIndex: 3,
+      keyMaterial: fakeKmc,
+      kmcJSON: JSON.stringify(fakeKmc),
+    } as never);
+    const wasmStub = stubWasmUpdate({
+      new_kmc_json: JSON.stringify({}),
+      new_policy_root_hex: FAKE_ROOT,
+      compiled_policy_sha256: ATTESTED_SHA256,
+    });
+    const { requests } = stubWire();
+
+    const client = stubClient();
+    await client.updatePolicy('3', JSON.stringify(minimalPolicy));
+
+    expect(wasmStub).toHaveBeenCalledTimes(1);
+    const patches = requests.filter(r => r.method === 'PATCH');
+    expect(patches).toHaveLength(1);
+    expect(patches[0].input).toBe('/api/v2/sdk/keys/3/policy');
+    expect(patches[0].body['new_policy_root']).toBe(FAKE_ROOT);
+    expect(patches[0].body['compiled_policy_sha256']).toBe(ATTESTED_SHA256);
+    // The envelope POST must still precede the root PATCH.
+    const postIndex = requests.findIndex(r => r.method === 'POST');
+    expect(postIndex).toBeGreaterThanOrEqual(0);
+    expect(postIndex < requests.findIndex(r => r.method === 'PATCH')).toBe(true);
+  });
+
+  it('fails closed before any request when the wasm result lacks the attestation', async () => {
+    jest.spyOn(
+      SigbashClient.prototype as unknown as Record<string, unknown>,
+      'getKey',
+    ).mockResolvedValue({
+      keyId: '3',
+      policyRoot: FAKE_ROOT,
+      network: 'signet',
+      require2FA: false,
+      keyIndex: 3,
+      keyMaterial: { network: 'signet' },
+      kmcJSON: JSON.stringify({ network: 'signet' }),
+    } as never);
+    stubWasmUpdate({
+      new_kmc_json: JSON.stringify({}),
+      new_policy_root_hex: FAKE_ROOT,
+    });
+    const { requests } = stubWire();
+
+    const client = stubClient();
+    await expect(client.updatePolicy('3', JSON.stringify(minimalPolicy))).rejects.toMatchObject({
+      name: 'SigbashSDKError',
+      code: 'WASM_ERROR',
+    });
+    expect(requests).toHaveLength(0);
   });
 });

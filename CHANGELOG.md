@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-09-17
+
+### Changed
+
+- **`updatePolicy()` now sends `compiled_policy_sha256` with the policy-root
+  PATCH.** The api-side policy-update route rejects any PATCH carrying a bare
+  `new_policy_root` (error code `POLICY_TRANSPARENCY_REQUIRED`), so this client
+  and the api change must deploy together. The hash is produced by the WASM
+  update pass over the exact processed compiled-policy JSON it derived the new
+  root from — a single pass, no recompilation — and the server records it as a
+  client attestation; the registered policy root stays the authoritative,
+  fail-closed value. A wasm binary that predates the contract fails locally
+  with a `WASM_ERROR` instead of tripping the server gate.
+
+### Added
+
+- The WASM `updatePolicy` export output extends from
+  `{ new_kmc_json, new_policy_root_hex }` to also return
+  `compiled_policy_sha256`.
+
 ## [0.8.2] — 2026-09-15
 
 ### Fixed

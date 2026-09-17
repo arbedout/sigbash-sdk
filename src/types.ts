@@ -204,6 +204,10 @@ export interface CreateKeyOptions {
 
 /**
  * Options for updatePolicy().
+ *
+ * The compiled-policy SHA-256 attestation sent beside the new policy root is
+ * produced by the WASM update pass over the same processed policy JSON it
+ * compiled the root from — callers never supply it.
  */
 export interface UpdatePolicyOptions {
   keyId: string;

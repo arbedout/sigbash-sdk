@@ -2766,7 +2766,9 @@ export class SigbashClient {
    * (admin or regular user) may replace the policy at any time.
    *
    * The method re-encrypts the KMC with the new policy compiled by WASM, stores
-   * the updated KMC on the server, and notifies the server of the new policy root.
+   * the updated KMC on the server, and notifies the server of the new policy
+   * root together with the SHA-256 of the compiled policy the same WASM pass
+   * hashed — the server rejects any PATCH carrying a bare root.
    * Signing is blocked for 24 hours after the update to give the key owner time
    * to detect and contest an unwanted change.
    *
@@ -2820,10 +2822,25 @@ export class SigbashClient {
           seed_hex: seedHex,
         })
       )
-    ) as { error?: string; new_kmc_json?: string; new_policy_root_hex?: string };
+    ) as {
+      error?: string;
+      new_kmc_json?: string;
+      new_policy_root_hex?: string;
+      compiled_policy_sha256?: string;
+    };
 
     if (wasmResult.error) {
       throw new SigbashSDKError(wasmResult.error, 'WASM_ERROR');
+    }
+
+    // The api-side policy-update route rejects any PATCH without the hash, so
+    // a wasm binary older than this client would fail server-side. Failing
+    // closed here keeps the error local and unmistakable instead.
+    if (!wasmResult.compiled_policy_sha256) {
+      throw new SigbashSDKError(
+        'WASM updatePolicy result is missing compiled_policy_sha256 — the wasm binary predates the policy-update transparency contract',
+        'WASM_ERROR',
+      );
     }
 
     // Re-encrypt the updated KMC.
@@ -2874,6 +2891,7 @@ export class SigbashClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           new_policy_root: wasmResult.new_policy_root_hex,
+          compiled_policy_sha256: wasmResult.compiled_policy_sha256,
         }),
       }
     );
