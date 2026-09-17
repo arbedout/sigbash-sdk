@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The WASM `updatePolicy` export output extends from
   `{ new_kmc_json, new_policy_root_hex }` to also return
   `compiled_policy_sha256`.
+- **`bip328Descriptor` on `KeySummary` and `CreateKeyResult`.** A checksummed
+  BIP-328 export descriptor for watch-only wallet import, returned by
+  `createKey()`, `getKey()` and `listKeys()`.
+
+### Changed
+
+- Funding and import docs updated to use the BIP-328 export descriptor.
 
 ## [0.8.2] — 2026-09-15
 
