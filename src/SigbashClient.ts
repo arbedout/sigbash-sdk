@@ -1057,6 +1057,7 @@ export class SigbashClient {
         policy: JSON.stringify(poetPolicy),
         network: options.network,
         seed_hex: seedHex,
+        credential_id: authHash,
       }))
     ) as { policy_root?: string; compiled_policy_json?: string; error?: string };
 
