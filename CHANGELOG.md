@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Policy-builder guidance for negated conditions updated: negation is
+  described as in-circuit enforced for the supported families, replacing
+  the obsolete forgeability caveat.
 - Funding and import docs updated to use the BIP-328 export descriptor.
 
 ## [0.8.2] — 2026-09-15
