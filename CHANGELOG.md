@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.3] — 2026-09-17
 
+### Fixed
+
+- **`createKey()` now sends the credential to the local policy compiler.**
+  The policy-compilation salt is bound to the credential, and a wasm binary
+  without the paired SDK change rejected the missing field — every
+  `createKey()` failed with `PolicyCompileError: credential_id field is
+  required`. Older wasm binaries are unaffected.
+
 ### Changed
 
 - **`updatePolicy()` now sends `compiled_policy_sha256` with the policy-root
