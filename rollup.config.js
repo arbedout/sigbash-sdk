@@ -3,15 +3,22 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 
 export default {
-  input: 'src/index.ts',
+  input: {
+    index: 'src/index.ts',
+    contracts: 'src/contracts/index.ts'
+  },
   output: [
     {
-      file: 'dist/index.mjs',
+      dir: 'dist',
+      entryFileNames: '[name].mjs',
+      chunkFileNames: 'chunk-[hash].mjs',
       format: 'es',
       sourcemap: true
     },
     {
-      file: 'dist/index.cjs',
+      dir: 'dist',
+      entryFileNames: '[name].cjs',
+      chunkFileNames: 'chunk-[hash].cjs',
       format: 'cjs',
       sourcemap: true
     }

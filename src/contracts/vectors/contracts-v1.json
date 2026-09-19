@@ -1,0 +1,109 @@
+{
+  "wallet_descriptor_v1": {
+    "fields": {
+      "network": "signet",
+      "wallet_mode": "mixed",
+      "signers": [
+        {
+          "kind": "sigbash_policy_key",
+          "xpub": "xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB",
+          "policy_key_id": "11111111-2222-4333-8444-555555555555"
+        },
+        {
+          "kind": "external_xpub",
+          "xpub": "xpub661MyMwAqRbcFtXgS5sYJABqqy9CpwBsGA4hMCmsv3nAjfMD3MfDDtqR8zZGDzBTXTtbcc6KkbpXjhBXTQeSCbhDdq9nJpLksFjSyb3Tiyx"
+        }
+      ],
+      "allowed_signer_sets": [
+        {
+          "signer_indexes": [
+            0
+          ]
+        },
+        {
+          "signer_indexes": [
+            0,
+            1
+          ]
+        }
+      ],
+      "receive_descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<SIGBASH_XPUB/0/0>>,<<EXTERNAL_XPUB/0/0>>))",
+      "change_descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<SIGBASH_XPUB/1/0>>,<<EXTERNAL_XPUB/1/0>>))"
+    },
+    "encoding_hex": "010101020002010000006f787075623636314d794d77417152626346573331594577706b4d756335544879325053743562444d736b745751634646387379416d52556170534347753845443957366f444d536776365a7a3869646f633461366d723842447a544a5934374c4a686b4a38554237574547756475420000002431313131313131312d323232322d343333332d383434342d353535353535353535353535020000006f787075623636314d794d77417152626346745867533573594a4142717179394370774273474134684d436d7376336e416a664d44334d664444747152387a5a47447a4254585474626363364b6b6270586a68425854516553436268446471396e4a704c6b73466a5379623354697978000000000002010002000100000080747228353039323962373463316130343935346237386234623630333565393761356530373861356130663238656339366435343762666565396163653830336163302c736f727465646d756c74695f6128312c3c3c534947424153485f585055422f302f303e3e2c3c3c45585445524e414c5f585055422f302f303e3e292900000080747228353039323962373463316130343935346237386234623630333565393761356530373861356130663238656339366435343762666565396163653830336163302c736f727465646d756c74695f6128312c3c3c534947424153485f585055422f312f303e3e2c3c3c45585445524e414c5f585055422f312f303e3e292900"
+  },
+  "wallet_id_v1": {
+    "network": "mainnet",
+    "receive_descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<KEY/0/0>>))",
+    "change_descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<KEY/1/0>>))",
+    "wallet_id_hex": "add5ae6fc3c7fe805590034263e56786ae1a6626176f1d4cafa75aad5b032ed8"
+  },
+  "approval_commitment_v1": {
+    "fields": {
+      "network": "signet",
+      "wallet_id_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "policy_version_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      "selected_tapleaf_hash_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "selected_customer_signer_ids": [
+        "external-xpub-fingerprint-a1b2"
+      ],
+      "unsigned_tx_version": 2,
+      "unsigned_tx_locktime": 650000,
+      "ordered_inputs": [
+        {
+          "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+          "outpoint_vout": 1,
+          "sequence": 4294967293,
+          "prevout_amount": 90000,
+          "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sighash_type": 129
+        }
+      ],
+      "ordered_outputs": [
+        {
+          "amount": 45000,
+          "script_pubkey_hex": "5120bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "amount": 40000,
+          "script_pubkey_hex": "5120cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      ]
+    },
+    "encoding_hex": "030101000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000002461616161616161612d626262622d346363632d386464642d656565656565656565656565202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f00010000001e65787465726e616c2d787075622d66696e6765727072696e742d61316232000000020009eb100001101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f00000001fffffffd0000000000015f90000000225120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000810002000000000000afc8000000225120bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000000000009c40000000225120cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "commitment_hex": "dc9741a7cdd9456e2d6a30c6a62bd55b659682c10bddd6fe173c4910685062c5"
+  },
+  "encrypted_event_header_v1": {
+    "fields": {
+      "schema_version": 1,
+      "event_id_hex": "000102030405060708090a0b0c0d0e0f",
+      "event_type": "transaction.proposal.created",
+      "org_client_id_hex": "101112131415161718191a1b1c1d1e1f",
+      "wallet_client_id_hex": "202122232425262728292a2b2c2d2e2f",
+      "subject_id_hex": null,
+      "actor_user_id_hex": "303132333435363738393a3b3c3d3e3f",
+      "client_timestamp_ms": 1726740000000,
+      "parent_event_hashes_hex": [
+        "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f"
+      ],
+      "semantic_commitment_hex": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "actor_signature_hex": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
+    },
+    "encoding_hex": "050101000102030405060708090a0b0c0d0e0f0000001c7472616e73616374696f6e2e70726f706f73616c2e63726561746564101112131415161718191a1b1c1d1e1f01202122232425262728292a2b2c2d2e2f00303132333435363738393a3b3c3d3e3f0000019209b96d000001404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f01606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f00000040808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf"
+  },
+  "capability_epoch_v1": [
+    {
+      "group_id": "org-common",
+      "epoch": 1,
+      "encoding_hex": "6f72672d636f6d6d6f6e0000000000000001"
+    },
+    {
+      "group_id": "wallet:6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
+      "epoch": 7,
+      "encoding_hex": "77616c6c65743a36663936313966662d386238362d346430312d623432642d3030636634666339363466660000000000000007"
+    }
+  ],
+  "recovery_envelope_v1": {
+    "version_prefix_hex": "0601"
+  }
+}
