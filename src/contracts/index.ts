@@ -141,6 +141,45 @@ export {
 export type { PolicyEnforcementClass, PolicyVersionState } from './policy';
 
 export {
+  CANONICAL_POLICY_AST_VERSION,
+  canonicalJson,
+  canonicalizePolicyRoot,
+  parseCanonicalPolicyAst,
+  policyNodeIdentityPaths,
+} from './policyAst';
+export type { CanonicalPolicyAstV1 } from './policyAst';
+
+export {
+  CANONICAL_POLICY_CONTRACT_ID,
+  CANONICAL_POLICY_VERSION,
+  SUPPORTED_CANONICAL_POLICY_VERSIONS,
+  POLICY_AST_DIGEST_TAG,
+  POLICY_AST_DIGEST_LENGTH,
+  encodeCanonicalPolicyAstV1,
+  decodeCanonicalPolicyAstV1,
+  canonicalPolicyAstToHex,
+  canonicalPolicyAstFromHex,
+  computePolicyAstDigest,
+  policyAstDigestToHex,
+  policyAstDigestHex,
+} from './policyEncoding';
+
+export {
+  SYSTEM_POLICY_VERSION,
+  SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE,
+  SYSTEM_REQKEY_DERIVATION_RANGE,
+  SYSTEM_POLICY_TAG,
+  systemWalletOwnershipFragment,
+  systemPolicyAst,
+  composeEffectivePolicy,
+  computeSystemPolicyDigest,
+  systemPolicyDigestHex,
+  computeEffectivePolicyDigest,
+  effectivePolicyDigestHex,
+  systemClauseIdentityDigestHex,
+} from './systemPolicy';
+
+export {
   RECOVERY_ENVELOPE_CONTRACT_ID,
   RECOVERY_ENVELOPE_VERSION,
   SUPPORTED_RECOVERY_ENVELOPE_VERSIONS,

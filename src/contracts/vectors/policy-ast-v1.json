@@ -1,0 +1,56 @@
+{
+  "wallet_descriptor_v1": {
+    "fields": {
+      "version": 1,
+      "network": "signet",
+      "walletMode": "sigbash_native",
+      "signers": [
+        {
+          "kind": "sigbash_policy_key",
+          "xpub": "xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB",
+          "policyKeyId": "11111111-2222-4333-8444-555555555555"
+        }
+      ],
+      "allowedSignerSets": [
+        {
+          "signerIndexes": [
+            0
+          ]
+        }
+      ],
+      "receiveDescriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<SIGBASH_XPUB/0/0>>))",
+      "changeDescriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<SIGBASH_XPUB/1/0>>))"
+    },
+    "encoding_hex": "010101010001010000006f787075623636314d794d77417152626346573331594577706b4d756335544879325053743562444d736b745751634646387379416d52556170534347753845443957366f444d536776365a7a3869646f633461366d723842447a544a5934374c4a686b4a38554237574547756475420000002431313131313131312d323232322d343333332d383434342d353535353535353535353535000101000000006a747228353039323962373463316130343935346237386234623630333565393761356530373861356130663238656339366435343762666565396163653830336163302c736f727465646d756c74695f6128312c3c3c534947424153485f585055422f302f303e3e29290000006a747228353039323962373463316130343935346237386234623630333565393761356530373861356130663238656339366435343762666565396163653830336163302c736f727465646d756c74695f6128312c3c3c534947424153485f585055422f312f303e3e292900"
+  },
+  "user_policy_a": {
+    "poet_json": "{\"version\":\"1.1\",\"policy\":{\"type\":\"operator\",\"operator\":\"THRESHOLD\",\"operatorParams\":{\"k\":2},\"children\":[{\"type\":\"condition\",\"conditionType\":\"TX_FEE_ABSOLUTE\",\"conditionParams\":{\"max_fee_sats\":50000}},{\"type\":\"condition\",\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"conditionParams\":{\"addresses\":[],\"use_descriptor\":true}},{\"type\":\"condition\",\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"conditionParams\":{\"window_seconds\":3600}}]}}",
+    "canonical_json": "{\"children\":[{\"conditionParams\":{\"addresses\":[],\"use_descriptor\":true},\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"type\":\"condition\"},{\"conditionParams\":{\"max_fee_sats\":50000},\"conditionType\":\"TX_FEE_ABSOLUTE\",\"type\":\"condition\"},{\"conditionParams\":{\"window_seconds\":3600},\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"type\":\"condition\"}],\"operator\":\"THRESHOLD\",\"operatorParams\":{\"k\":2},\"type\":\"operator\"}",
+    "encoding_hex": "0701010006010000000200030200000000164f55545055545f444553545f49535f494e5f5345545300020000000961646472657373657304000000025b5d0000000e7573655f64657363726970746f72020102000000000f54585f4645455f4142534f4c55544500010000000c6d61785f6665655f7361747303000000000000c35002000000001554494d455f42415345445f434f4e53545241494e5400010000000e77696e646f775f7365636f6e6473030000000000000e10",
+    "digest_hex": "6ef782caf557c547275471bd5bbcc737979d72b46fdca665150cae28a25c6976"
+  },
+  "user_policy_reformatted_equivalent": {
+    "poet_json": "{\"policy\":{\"type\":\"operator\",\"operator\":\"THRESHOLD\",\"threshold\":2,\"children\":[{\"type\":\"condition\",\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"description\":\"business hours\",\"conditionParams\":{\"window_seconds\":3600}},{\"type\":\"condition\",\"conditionType\":\"TX_FEE_ABSOLUTE\",\"conditionParams\":{\"max_fee_sats\":50000}},{\"type\":\"condition\",\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"conditionParams\":{\"use_descriptor\":true,\"addresses\":[]}}]},\"version\":\"1.1\"}",
+    "canonical_json": "{\"children\":[{\"conditionParams\":{\"addresses\":[],\"use_descriptor\":true},\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"type\":\"condition\"},{\"conditionParams\":{\"max_fee_sats\":50000},\"conditionType\":\"TX_FEE_ABSOLUTE\",\"type\":\"condition\"},{\"conditionParams\":{\"window_seconds\":3600},\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"type\":\"condition\"}],\"operator\":\"THRESHOLD\",\"operatorParams\":{\"k\":2},\"type\":\"operator\"}",
+    "encoding_hex": "0701010006010000000200030200000000164f55545055545f444553545f49535f494e5f5345545300020000000961646472657373657304000000025b5d0000000e7573655f64657363726970746f72020102000000000f54585f4645455f4142534f4c55544500010000000c6d61785f6665655f7361747303000000000000c35002000000001554494d455f42415345445f434f4e53545241494e5400010000000e77696e646f775f7365636f6e6473030000000000000e10",
+    "digest_hex": "6ef782caf557c547275471bd5bbcc737979d72b46fdca665150cae28a25c6976"
+  },
+  "user_policy_unknown_condition": {
+    "poet_json": "{\"version\":\"1.1\",\"policy\":{\"type\":\"condition\",\"conditionType\":\"ORG_CUSTOM_ATTESTATION\",\"conditionParams\":{\"quorum_note\":{\"roles\":[\"treasurer\",\"cfo\"],\"min\":2},\"basis_points\":12.5,\"note\":null,\"strict\":false}}}",
+    "canonical_json": "{\"conditionParams\":{\"basis_points\":12.5,\"note\":null,\"quorum_note\":{\"min\":2,\"roles\":[\"treasurer\",\"cfo\"]},\"strict\":false},\"conditionType\":\"ORG_CUSTOM_ATTESTATION\",\"type\":\"condition\"}",
+    "encoding_hex": "07010200000000164f52475f435553544f4d5f4154544553544154494f4e00040000000c62617369735f706f696e7473040000000431322e35000000046e6f746504000000046e756c6c0000000b71756f72756d5f6e6f746504000000257b226d696e223a322c22726f6c6573223a5b22747265617375726572222c2263666f225d7d000000067374726963740200",
+    "digest_hex": "48777b19bbbf23207f4f636c246efbf69288b945d5c62d4c3f6f4dcfbab71c47"
+  },
+  "system_policy": {
+    "poet_json": null,
+    "canonical_json": "{\"conditionParams\":{\"derivation_range\":512,\"descriptor_template\":\"tr(SIGBASH_XPUB/0/*)\",\"use_descriptor\":true},\"conditionType\":\"REQKEY\",\"type\":\"condition\"}",
+    "encoding_hex": "07010200000000065245514b455900030000001064657269766174696f6e5f72616e67650300000000000002000000001364657363726970746f725f74656d706c6174650100000014747228534947424153485f585055422f302f2a290000000e7573655f64657363726970746f720201",
+    "digest_hex": "a2954d160464505459e0e7ee378838f9cd02238d68be0cc7409c14012b9e0869"
+  },
+  "effective_policy": {
+    "poet_json": null,
+    "canonical_json": "{\"children\":[{\"children\":[{\"conditionParams\":{\"addresses\":[],\"use_descriptor\":true},\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"type\":\"condition\"},{\"conditionParams\":{\"max_fee_sats\":50000},\"conditionType\":\"TX_FEE_ABSOLUTE\",\"type\":\"condition\"},{\"conditionParams\":{\"window_seconds\":3600},\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"type\":\"condition\"}],\"operator\":\"THRESHOLD\",\"operatorParams\":{\"k\":2},\"type\":\"operator\"},{\"conditionParams\":{\"derivation_range\":512,\"descriptor_template\":\"tr(SIGBASH_XPUB/0/*)\",\"use_descriptor\":true},\"conditionType\":\"REQKEY\",\"type\":\"condition\"}],\"operator\":\"AND\",\"type\":\"operator\"}",
+    "encoding_hex": "0701010001000002010006010000000200030200000000164f55545055545f444553545f49535f494e5f5345545300020000000961646472657373657304000000025b5d0000000e7573655f64657363726970746f72020102000000000f54585f4645455f4142534f4c55544500010000000c6d61785f6665655f7361747303000000000000c35002000000001554494d455f42415345445f434f4e53545241494e5400010000000e77696e646f775f7365636f6e6473030000000000000e100200000000065245514b455900030000001064657269766174696f6e5f72616e67650300000000000002000000001364657363726970746f725f74656d706c6174650100000014747228534947424153485f585055422f302f2a290000000e7573655f64657363726970746f720201",
+    "digest_hex": "23271a6883886b84c9c79b0ab71c0620a8c887671f6682426a21e464f7b8621e"
+  }
+}
