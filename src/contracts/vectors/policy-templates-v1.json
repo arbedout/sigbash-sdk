@@ -1,0 +1,163 @@
+{
+  "catalogue_version": 1,
+  "hard_templates": [
+    {
+      "template_id": "destination-allowlist",
+      "params": {
+        "network": "signet",
+        "requireChangeToInputAddresses": true,
+        "addresses": [
+          "tb1qexampleaddress0000000000000000000000000aa",
+          "tb1qexampleaddress0000000000000000000000000bb"
+        ]
+      },
+      "canonical_json": "{\"conditionParams\":{\"addresses\":[\"tb1qexampleaddress0000000000000000000000000aa\",\"tb1qexampleaddress0000000000000000000000000bb\"],\"network\":\"signet\",\"require_change_to_input_addresses\":true,\"selector\":{\"type\":\"ALL\"}},\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"type\":\"condition\"}",
+      "encoding_hex": "07010200000000164f55545055545f444553545f49535f494e5f5345545300040000000961646472657373657304000000615b22746231716578616d706c6561646472657373303030303030303030303030303030303030303030303030306161222c22746231716578616d706c6561646472657373303030303030303030303030303030303030303030303030306262225d000000076e6574776f726b01000000067369676e657400000021726571756972655f6368616e67655f746f5f696e7075745f61646472657373657302010000000873656c6563746f72040000000e7b2274797065223a22414c4c227d",
+      "digest_hex": "4902aea73bf71c0d3fe6b529ce5b5e087dd67e77889ec57eeb832c1e36f5f857"
+    },
+    {
+      "template_id": "destination-blocklist",
+      "params": {
+        "network": "signet",
+        "addresses": [
+          "tb1qexamplebannedaddress0000000000000000000cc"
+        ]
+      },
+      "canonical_json": "{\"children\":[{\"conditionParams\":{\"addresses\":[\"tb1qexamplebannedaddress0000000000000000000cc\"],\"network\":\"signet\",\"selector\":{\"type\":\"ANY\"}},\"conditionType\":\"OUTPUT_DEST_IS_IN_SETS\",\"type\":\"condition\"}],\"operator\":\"NOT\",\"type\":\"operator\"}",
+      "encoding_hex": "07010100030000010200000000164f55545055545f444553545f49535f494e5f5345545300030000000961646472657373657304000000315b22746231716578616d706c6562616e6e656461646472657373303030303030303030303030303030303030306363225d000000076e6574776f726b01000000067369676e65740000000873656c6563746f72040000000e7b2274797065223a22414e59227d",
+      "digest_hex": "24b49b7ba5eedc565419e8415605458d73d3f9910c4a6734db623c13946cb2ec"
+    },
+    {
+      "template_id": "fee-ceiling",
+      "params": {
+        "maxFeeSats": 50000
+      },
+      "canonical_json": "{\"conditionParams\":{\"operator\":\"LTE\",\"value\":50000},\"conditionType\":\"TX_FEE_ABSOLUTE\",\"type\":\"condition\"}",
+      "encoding_hex": "070102000000000f54585f4645455f4142534f4c5554450002000000086f70657261746f7201000000034c54450000000576616c756503000000000000c350",
+      "digest_hex": "9a5d5e92e3239a14e569f33f53284d64a3c2a499140e09281a85892f2310402a"
+    },
+    {
+      "template_id": "time-window",
+      "params": {
+        "mode": "within",
+        "activeDays": [
+          3,
+          1,
+          2
+        ],
+        "startHourUtc": "09:00",
+        "endHourUtc": "17:00",
+        "startDate": "2027-01-15",
+        "endDate": "2030-03-20",
+        "startUnixSeconds": 1800000000,
+        "endUnixSeconds": 1900000000
+      },
+      "canonical_json": "{\"conditionParams\":{\"active_days\":[1,2,3],\"constraint_type\":\"within\",\"end_date_within\":\"2030-03-20\",\"end_hour\":\"17:00\",\"end_time\":1900000000,\"start_date_within\":\"2027-01-15\",\"start_hour\":\"09:00\",\"start_time\":1800000000},\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"type\":\"condition\"}",
+      "encoding_hex": "070102000000001554494d455f42415345445f434f4e53545241494e5400080000000b6163746976655f6461797304000000075b312c322c335d0000000f636f6e73747261696e745f74797065010000000677697468696e0000000f656e645f646174655f77697468696e010000000a323033302d30332d323000000008656e645f686f7572010000000531373a303000000008656e645f74696d650300000000713fb3000000001173746172745f646174655f77697468696e010000000a323032372d30312d31350000000a73746172745f686f7572010000000530393a30300000000a73746172745f74696d6503000000006b49d200",
+      "digest_hex": "7173a1a42adb9fdc3c8d1e5bf10f784f2da9b2b15940ba90e4c6aae33f2dd092"
+    },
+    {
+      "template_id": "time-window",
+      "params": {
+        "mode": "after",
+        "startUnixSeconds": 1893456000
+      },
+      "canonical_json": "{\"conditionParams\":{\"constraint_type\":\"after\",\"start_time\":1893456000},\"conditionType\":\"TIME_BASED_CONSTRAINT\",\"type\":\"condition\"}",
+      "encoding_hex": "070102000000001554494d455f42415345445f434f4e53545241494e5400020000000f636f6e73747261696e745f74797065010000000561667465720000000a73746172745f74696d65030000000070dbd880",
+      "digest_hex": "7404964f88e508b47c970a63c9d65f5baf05b04f8ab5e471f5f46b5490c6836e"
+    },
+    {
+      "template_id": "usage-velocity",
+      "params": {
+        "maxUses": 5,
+        "resetInterval": "6h",
+        "resetType": "rolling"
+      },
+      "canonical_json": "{\"conditionParams\":{\"max_uses\":5,\"reset_interval\":\"6h\",\"reset_type\":\"rolling\"},\"conditionType\":\"COUNT_BASED_CONSTRAINT\",\"type\":\"condition\"}",
+      "encoding_hex": "0701020000000016434f554e545f42415345445f434f4e53545241494e540003000000086d61785f757365730300000000000000050000000e72657365745f696e74657276616c010000000236680000000a72657365745f747970650100000007726f6c6c696e67",
+      "digest_hex": "280e8a970cb6b7e472d0a0914e653a600e57ada9ee339509e38c46899fdd11c4"
+    },
+    {
+      "template_id": "consolidation-only",
+      "params": {},
+      "canonical_json": "{\"conditionParams\":{\"expected_value\":true},\"conditionType\":\"DERIVED_NO_NEW_OUTPUTS\",\"type\":\"condition\"}",
+      "encoding_hex": "0701020000000016444552495645445f4e4f5f4e45575f4f55545055545300010000000e65787065637465645f76616c75650201",
+      "digest_hex": "54258797ff931cf8c9a8a5769de4870afec3a4093bba82f0e3154e0015f7e7ef"
+    }
+  ],
+  "governance_facts": [
+    {
+      "template_id": "approval-amount-band",
+      "params": {
+        "thresholds": [
+          {
+            "amountSats": 1000000,
+            "additionalApprovals": 1
+          },
+          {
+            "amountSats": 100000000,
+            "additionalApprovals": 2
+          }
+        ]
+      },
+      "workflow_fact": {
+        "kind": "approval_amount_band",
+        "thresholds": [
+          {
+            "amount_sats": 1000000,
+            "additional_approvals_required": 1
+          },
+          {
+            "amount_sats": 100000000,
+            "additional_approvals_required": 2
+          }
+        ]
+      }
+    },
+    {
+      "template_id": "human-approval-quorum",
+      "params": {
+        "quorum": 2
+      },
+      "workflow_fact": {
+        "kind": "human_approval_quorum",
+        "quorum": 2
+      }
+    },
+    {
+      "template_id": "required-approver",
+      "params": {
+        "approverKind": "role",
+        "approverId": "treasurer"
+      },
+      "workflow_fact": {
+        "kind": "required_approver",
+        "approver_kind": "role",
+        "approver_id": "treasurer"
+      }
+    },
+    {
+      "template_id": "proposal-expiration",
+      "params": {
+        "expiresInSeconds": 86400
+      },
+      "workflow_fact": {
+        "kind": "proposal_expiration",
+        "expires_after_seconds": 86400
+      }
+    }
+  ],
+  "selection_example": {
+    "catalogueVersion": 1,
+    "templateId": "destination-allowlist",
+    "templateVersion": 1,
+    "enforcementClass": "hard_cryptographic",
+    "astDigestHex": "4ebd29ee964a366356174621088b39a576c4e80b5d336eb69de283db944b2008",
+    "params": {
+      "network": "signet",
+      "addresses": [
+        "tb1qexampleaddress0000000000000000000000000aa"
+      ]
+    }
+  }
+}

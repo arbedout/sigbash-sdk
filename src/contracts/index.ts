@@ -165,6 +165,33 @@ export {
 } from './policyEncoding';
 
 export {
+  POLICY_TEMPLATE_CATALOGUE_VERSION,
+  SOUNDNESS_CENSUS_VERDICTS,
+  CENSUS_GRADED_CONDITION_COUNT,
+  DISABLED_CONDITION_TYPES,
+  POLICY_TEMPLATES,
+  assertCatalogueInvariant,
+  getPolicyTemplate,
+  buildPolicyTemplateAst,
+  buildGovernanceTemplateFact,
+  createPolicyTemplateSelection,
+  validatePolicySelectionAst,
+  validatePolicyTemplateSelection,
+} from './policyTemplates';
+export type {
+  SoundnessCensusVerdict,
+  CensusVerdictRecord,
+  PolicyTemplateDescriptorV1,
+  HardPolicyTemplateDescriptorV1,
+  GovernancePolicyTemplateDescriptorV1,
+  PolicyTemplateParamSpecV1,
+  GovernanceWorkflowFactV1,
+  PolicyTemplateAstOutputV1,
+  PolicyTemplateSelectionV1,
+  PolicyConditionGateOptions,
+} from './policyTemplates';
+
+export {
   SYSTEM_POLICY_VERSION,
   SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE,
   SYSTEM_REQKEY_DERIVATION_RANGE,
