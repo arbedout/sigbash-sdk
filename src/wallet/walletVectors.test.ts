@@ -33,6 +33,7 @@ interface OracleCase {
   merkle_root: string;
   output_key: string;
   output_key_y_is_odd: boolean;
+  script_pub_key_hex: string;
   address: string;
   fingerprint: string;
   receive_text_with_checksum: string;
@@ -136,6 +137,7 @@ describe('wallet descriptor oracle vectors', () => {
     expect(toHex(tree.outputKeyXOnly)).toBe(c.output_key);
     expect(tree.outputKeyYIsOdd).toBe(c.output_key_y_is_odd);
     expect(tree.address).toBe(c.address);
+    expect(toHex(tree.scriptPubKey)).toBe(c.script_pub_key_hex);
     expect(tree.leaves.map((l) => toHex(l.script))).toEqual(c.leaf_scripts_hex);
   });
 

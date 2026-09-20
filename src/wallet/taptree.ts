@@ -357,7 +357,9 @@ export function buildWalletTapTree(
 
   const numsKey = hexToBytes(WALLET_NUMS_INTERNAL_KEY_HEX);
   const { xOnly: outputKeyXOnly, yIsOdd } = outputPoint(numsKey, root);
-  const scriptPubKey = concatBytes(new Uint8Array([0x51]), outputKeyXOnly);
+  // P2TR scriptPubKey: OP_1 followed by the 32-byte push (0x20) of the
+  // output key — 34 bytes, the form btcd's PayToAddrScript emits.
+  const scriptPubKey = concatBytes(new Uint8Array([0x51, 0x20]), outputKeyXOnly);
   const address = p2trAddress(wallet.network, outputKeyXOnly);
 
   for (const leaf of leaves) {

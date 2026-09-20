@@ -97,11 +97,13 @@ describe('tree shape and leaf construction', () => {
     expect(tree.leaves[0].script[0]).toBe(0x20);
   });
 
-  it('the scriptPubKey is OP_1 followed by the output key', () => {
+  it('the scriptPubKey is OP_1 + OP_PUSH32 + the output key (34 bytes)', () => {
     const tree = buildWalletTapTree(singleWallet(), 0, 0);
-    expect(tree.scriptPubKey[0]).toBe(0x51);
-    expect(tree.scriptPubKey).toHaveLength(33);
-    expect(bytesToHex(tree.scriptPubKey.slice(1))).toBe(bytesToHex(tree.outputKeyXOnly));
+    // Pin the exact opcode prefix, not just the size: a witness-program
+    // blob missing the push opcode is not valid script.
+    expect(Array.from(tree.scriptPubKey.slice(0, 2))).toEqual([0x51, 0x20]);
+    expect(tree.scriptPubKey).toHaveLength(34);
+    expect(bytesToHex(tree.scriptPubKey.slice(2))).toBe(bytesToHex(tree.outputKeyXOnly));
   });
 
   it('output parity and control-block first byte agree', () => {
