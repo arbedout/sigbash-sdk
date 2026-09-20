@@ -148,6 +148,7 @@ export {
   policyNodeIdentityPaths,
 } from './policyAst';
 export type { CanonicalPolicyAstV1 } from './policyAst';
+export type { ConditionNode, PolicyNode } from '../types';
 
 export {
   CANONICAL_POLICY_CONTRACT_ID,
