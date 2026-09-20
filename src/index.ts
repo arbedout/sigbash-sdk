@@ -248,6 +248,17 @@ export {
   SIGNING_ERROR_CLASSES,
   signingFailureClass,
   isSigningSessionTerminal,
+  ROLE_PRESETS,
+  CAPABILITY_ACTIONS,
+  CAPABILITY_ACTION_SCOPES,
+  HUMAN_APPROVAL_ACTIONS,
+  PRESET_CAPABILITIES,
+  PRESET_ORG_GROUPS,
+  capabilityGroupsForPreset,
+  parseRolePreset,
+  parsePresetAssignment,
+  parseOrgGovernanceSettings,
+  DEFAULT_ORG_GOVERNANCE_SETTINGS,
 } from './contracts';
 export type {
   NetworkId,
@@ -268,6 +279,12 @@ export type {
   PolicyVersionState,
   SigningApiErrorCode,
   SigningFailureClass,
+  RolePreset,
+  CapabilityActionId,
+  CapabilityActionScope,
+  PresetScope,
+  PresetAssignment,
+  OrgGovernanceSettings,
 } from './contracts';
 
 // Institutional wallet helpers — canonical construction, canonical text +

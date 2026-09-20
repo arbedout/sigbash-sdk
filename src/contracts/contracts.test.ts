@@ -49,6 +49,33 @@ import {
   hexToBytes,
   walletIdFromHex,
 } from './index';
+import {
+  CAPABILITY_ACTION_SCOPES,
+  CAPABILITY_ACTIONS,
+  CAPABILITY_ORG_MANAGED_PROVISION,
+  CAPABILITY_POLICY_APPROVE,
+  CAPABILITY_TX_APPROVE,
+  CAPABILITY_TX_SIGN,
+  DEFAULT_ORG_GOVERNANCE_SETTINGS,
+  HUMAN_APPROVAL_ACTIONS,
+  PRESET_CAPABILITIES,
+  PRESET_ORG_GROUPS,
+  ROLE_PRESETS,
+  ROLE_PRESET_AUDITOR,
+  ROLE_PRESET_MANAGED_ORG_ADMIN,
+  ROLE_PRESET_ORG_OWNER,
+  ROLE_PRESET_POLICY_APPROVER,
+  ROLE_PRESET_SECURITY_ADMIN,
+  ROLE_PRESET_SERVICE_USER,
+  ROLE_PRESET_SIGNER,
+  ROLE_PRESET_TX_APPROVER,
+  capabilityGroupsForPreset,
+  parseOrgGovernanceSettings,
+  parsePresetAssignment,
+  parseRolePreset,
+  walletCapabilityGroupId,
+} from './index';
+import type { CapabilityActionId, RolePreset } from './index';
 import type {
   ApprovalCommitmentFieldsV1,
   EncryptedEventHeaderV1,
@@ -367,6 +394,175 @@ describe('Capability groups and epochs', () => {
   it('rejects zero epochs and non-integer epochs', () => {
     expect(() => encodeCapabilityEpoch('org-common', 0)).toThrow(RangeError);
     expect(() => encodeCapabilityEpoch('org-common', 1.5)).toThrow(RangeError);
+  });
+});
+
+describe('Role presets and capability actions', () => {
+  const actionSet = new Set<string>(CAPABILITY_ACTIONS);
+  const presetSet = new Set<string>(ROLE_PRESETS);
+
+  it('exposes the fixed preset vocabulary and fails closed on unknown ids', () => {
+    expect(ROLE_PRESETS).toHaveLength(11);
+    expect(parseRolePreset('org-owner')).toBe('org-owner');
+    expect(parseRolePreset('service-user')).toBe('service-user');
+    expect(() => parseRolePreset('super-admin')).toThrow(ContractVersionError);
+    expect(() => parseRolePreset('')).toThrow(ContractVersionError);
+  });
+
+  it('maps every action id to exactly one scope', () => {
+    expect(CAPABILITY_ACTIONS.length).toBe(Object.keys(CAPABILITY_ACTION_SCOPES).length);
+    for (const action of CAPABILITY_ACTIONS) {
+      expect(['org-global', 'wallet-scoped', 'signing-scope']).toContain(
+        CAPABILITY_ACTION_SCOPES[action],
+      );
+    }
+  });
+
+  it('keeps every preset action set inside the action vocabulary', () => {
+    expect(ROLE_PRESETS.length).toBe(Object.keys(PRESET_CAPABILITIES).length);
+    for (const preset of ROLE_PRESETS) {
+      for (const action of PRESET_CAPABILITIES[preset]) {
+        expect(actionSet.has(action)).toBe(true);
+      }
+    }
+  });
+
+  it('keeps approver and signer distinct: neither preset grants the other action', () => {
+    expect(PRESET_CAPABILITIES[ROLE_PRESET_TX_APPROVER]).not.toContain(CAPABILITY_TX_SIGN);
+    expect(PRESET_CAPABILITIES[ROLE_PRESET_SIGNER]).not.toContain(CAPABILITY_TX_APPROVE);
+  });
+
+  it('gives the security admin no transaction-spending action', () => {
+    const actions = PRESET_CAPABILITIES[ROLE_PRESET_SECURITY_ADMIN];
+    for (const action of actions) {
+      expect(CAPABILITY_ACTION_SCOPES[action as CapabilityActionId]).toBe('org-global');
+      expect(action.startsWith('tx.')).toBe(false);
+      expect(action.startsWith('wallet.')).toBe(false);
+    }
+  });
+
+  it('gives the org owner no wallet-scoped or signing action', () => {
+    for (const action of PRESET_CAPABILITIES[ROLE_PRESET_ORG_OWNER]) {
+      expect(CAPABILITY_ACTION_SCOPES[action as CapabilityActionId]).toBe('org-global');
+    }
+  });
+
+  it('gives the auditor only the audit-read action', () => {
+    expect(PRESET_CAPABILITIES[ROLE_PRESET_AUDITOR]).toEqual(['audit.read']);
+  });
+
+  it('confers no action from the service-user preset alone', () => {
+    expect(PRESET_CAPABILITIES[ROLE_PRESET_SERVICE_USER]).toEqual([]);
+    for (const approvalAction of HUMAN_APPROVAL_ACTIONS) {
+      expect(CAPABILITY_ACTION_SCOPES[approvalAction]).not.toBe('org-global');
+    }
+  });
+
+  it('resolves capability groups per assignment scope from one table', () => {
+    const walletId = '6f9619ff-8b86-4d01-b42d-00cf4fc964ff';
+    expect(capabilityGroupsForPreset(ROLE_PRESET_ORG_OWNER, { kind: 'org' })).toEqual([
+      'org-common',
+    ]);
+    expect(
+      capabilityGroupsForPreset(ROLE_PRESET_TX_APPROVER, { kind: 'wallet', walletClientId: walletId }),
+    ).toEqual(['org-common', walletCapabilityGroupId(walletId)]);
+    expect(capabilityGroupsForPreset(ROLE_PRESET_SECURITY_ADMIN, { kind: 'org' })).toEqual([
+      'org-common',
+      'security-recovery',
+    ]);
+    expect(capabilityGroupsForPreset(ROLE_PRESET_AUDITOR, { kind: 'org' })).toEqual([
+      'audit',
+      'org-common',
+    ]);
+    // No preset at org scope ever implies a wallet group.
+    for (const preset of ROLE_PRESETS) {
+      for (const group of capabilityGroupsForPreset(preset, { kind: 'org' })) {
+        expect(group.startsWith('wallet:')).toBe(false);
+      }
+    }
+  });
+
+  it('keeps every org-level group a valid capability-group identifier', () => {
+    for (const preset of ROLE_PRESETS) {
+      for (const group of PRESET_ORG_GROUPS[preset]) {
+        expect(parseCapabilityGroupId(group)).toBe(group);
+      }
+    }
+  });
+
+  it('round-trips a strict preset assignment record and rejects corrupt shapes', () => {
+    const subject = 'a'.repeat(32);
+    const record = {
+      preset: 'tx-approver',
+      scope: { kind: 'wallet', walletClientId: '6f9619ff-8b86-4d01-b42d-00cf4fc964ff' },
+      subjectUserId: subject,
+      assignedByUserId: 'b'.repeat(32),
+      assignedAtMs: 1_700_000_000_000,
+    };
+    expect(parsePresetAssignment(record)).toEqual(record);
+    const orgRecord = { ...record, scope: { kind: 'org' }, assignedByUserId: null };
+    expect(parsePresetAssignment(orgRecord)).toEqual(orgRecord);
+    expect(() => parsePresetAssignment({ ...record, preset: 'super-admin' })).toThrow(
+      ContractVersionError,
+    );
+    expect(() =>
+      parsePresetAssignment({ ...record, scope: { kind: 'wallet', walletClientId: 'nope' } }),
+    ).toThrow(ContractVersionError);
+    expect(() => parsePresetAssignment({ ...record, subjectUserId: 'xyz' })).toThrow(
+      ContractVersionError,
+    );
+    expect(() => parsePresetAssignment({ ...record, assignedAtMs: -1 })).toThrow(
+      ContractVersionError,
+    );
+  });
+
+  it('defaults governance settings to self-approval denied and rejects invalid flags', () => {
+    expect(parseOrgGovernanceSettings(null)).toEqual(DEFAULT_ORG_GOVERNANCE_SETTINGS);
+    expect(parseOrgGovernanceSettings(undefined)).toEqual(DEFAULT_ORG_GOVERNANCE_SETTINGS);
+    expect(DEFAULT_ORG_GOVERNANCE_SETTINGS.selfApprovalExplicitlyEnabled).toBe(false);
+    expect(() => parseOrgGovernanceSettings({ selfApprovalExplicitlyEnabled: 'yes' })).toThrow(
+      ContractVersionError,
+    );
+    expect(parseOrgGovernanceSettings({ selfApprovalExplicitlyEnabled: true })).toEqual({
+      selfApprovalExplicitlyEnabled: true,
+    });
+  });
+
+  it('presets every capability action into at least the preset table or the explicit-grant path', () => {
+    // Every action is reachable through some preset assignment; otherwise
+    // the action is dead vocabulary.
+    const reachable = new Set<string>();
+    for (const preset of ROLE_PRESETS) {
+      for (const action of PRESET_CAPABILITIES[preset]) reachable.add(action);
+    }
+    expect(reachable.size).toBe(actionSet.size);
+  });
+
+  it('presets only known preset identifiers in the group table', () => {
+    expect(Object.keys(PRESET_ORG_GROUPS).length).toBe(presetSet.size);
+  });
+
+  it('keeps the managed-organization preset free of wallet-scoped actions', () => {
+    const actions = PRESET_CAPABILITIES[ROLE_PRESET_MANAGED_ORG_ADMIN];
+    expect(actions).toContain(CAPABILITY_ORG_MANAGED_PROVISION);
+    for (const action of actions) {
+      expect(CAPABILITY_ACTION_SCOPES[action as CapabilityActionId]).toBe('org-global');
+    }
+  });
+
+  it('marks the human-approval actions and excludes the service preset from them', () => {
+    expect(HUMAN_APPROVAL_ACTIONS).toContain(CAPABILITY_TX_APPROVE);
+    expect(HUMAN_APPROVAL_ACTIONS).toContain(CAPABILITY_POLICY_APPROVE);
+    for (const approvalAction of HUMAN_APPROVAL_ACTIONS) {
+      expect(PRESET_CAPABILITIES[ROLE_PRESET_SERVICE_USER]).not.toContain(approvalAction);
+    }
+  });
+
+  it('keeps the policy-approver preset from holding the draft action and vice versa', () => {
+    expect(PRESET_CAPABILITIES[ROLE_PRESET_POLICY_APPROVER]).not.toContain('policy.draft');
+    expect(PRESET_CAPABILITIES['policy-editor' as RolePreset]).not.toContain(
+      CAPABILITY_POLICY_APPROVE,
+    );
   });
 });
 
