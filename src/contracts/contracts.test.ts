@@ -6,6 +6,7 @@
 import {
   APPROVAL_COMMITMENT_CONTRACT_ID,
   APPROVAL_COMMITMENT_TAG,
+  ApprovalCommitmentDecodeError,
   ENCRYPTED_EVENT_HEADER_VERSION,
   ENCRYPTED_SYNC_ENVELOPE_VERSION,
   ContractVersionError,
@@ -237,7 +238,74 @@ describe('ApprovalCommitmentV1', () => {
     };
     expect(bytesToHex(computeApprovalCommitment(swapped))).not.toBe(vectors.approval_commitment_v1.commitment_hex);
   });
+
+  it('changes the commitment for every individually relevant field', () => {
+    // Frozen vectors: each mutation patches one semantic field (arrays are
+    // replaced wholesale) and pins the exact digest it must produce.
+    const mutations = vectors.approval_commitment_v1.mutations as unknown as {
+      name: string;
+      patch: Record<string, unknown>;
+      commitment_hex: string;
+    }[];
+    expect(mutations.length).toBeGreaterThanOrEqual(18);
+    for (const mutation of mutations) {
+      const patched = applyApprovalFieldsPatch(fields, mutation.patch);
+      const digest = bytesToHex(computeApprovalCommitment(patched));
+      expect(digest).toBe(mutation.commitment_hex);
+      expect(decodeApprovalCommitmentV1(encodeApprovalCommitmentV1(patched))).toEqual(patched);
+    }
+  });
+
+  it('rejects truncated and overrunning encodings with typed decode errors', () => {
+    const bytes = hexToBytes(vectors.approval_commitment_v1.encoding_hex);
+    expect(() => decodeApprovalCommitmentV1(bytes.subarray(0, bytes.length - 4))).toThrow(ApprovalCommitmentDecodeError);
+    expect(() => decodeApprovalCommitmentV1(bytes.subarray(0, bytes.length - 4))).toThrow(/truncated input/);
+    // The policy_version_id length prefix (offset after header, network, and
+    // wallet id) inflated past the buffer end is an overrun, not truncation,
+    // and must fail closed with the same typed rejection.
+    const overrun = Uint8Array.from(bytes);
+    overrun[35] = 0xff;
+    overrun[36] = 0xff;
+    overrun[37] = 0xff;
+    overrun[38] = 0xff;
+    expect(() => decodeApprovalCommitmentV1(overrun)).toThrow(ApprovalCommitmentDecodeError);
+    // Version faults keep their own typed class.
+    const badVersion = Uint8Array.from(bytes);
+    badVersion[1] = 0x02;
+    expect(() => decodeApprovalCommitmentV1(badVersion)).toThrow(ContractVersionError);
+  });
 });
+
+/** Shallow-merges one frozen mutation patch; arrays are replaced wholesale. */
+function applyApprovalFieldsPatch(fields: ApprovalCommitmentFieldsV1, patch: Record<string, unknown>): ApprovalCommitmentFieldsV1 {
+  const next: ApprovalCommitmentFieldsV1 = { ...fields };
+  if (patch.network !== undefined) next.network = patch.network as ApprovalCommitmentFieldsV1['network'];
+  if (patch.wallet_id_hex !== undefined) next.walletId = hexToBytes(patch.wallet_id_hex as string);
+  if (patch.policy_version_id !== undefined) next.policyVersionId = patch.policy_version_id as string;
+  if (patch.selected_tapleaf_hash_hex !== undefined) next.selectedTapleafHash = hexToBytes(patch.selected_tapleaf_hash_hex as string);
+  if (patch.selected_customer_signer_ids !== undefined) next.selectedCustomerSignerIds = patch.selected_customer_signer_ids as string[];
+  if (patch.unsigned_tx_version !== undefined) next.unsignedTxVersion = patch.unsigned_tx_version as number;
+  if (patch.unsigned_tx_locktime !== undefined) next.unsignedTxLocktime = patch.unsigned_tx_locktime as number;
+  if (patch.ordered_inputs !== undefined) {
+    next.orderedInputs = (patch.ordered_inputs as { outpoint_txid_hex: string; outpoint_vout: number; sequence: number; prevout_amount: number; prevout_script_pubkey_hex: string; sighash_type: number }[]).map(
+      (i) => ({
+        outpointTxid: hexToBytes(i.outpoint_txid_hex),
+        outpointVout: i.outpoint_vout,
+        sequence: i.sequence,
+        prevoutAmount: BigInt(i.prevout_amount),
+        prevoutScriptPubkey: hexToBytes(i.prevout_script_pubkey_hex),
+        sighashType: i.sighash_type,
+      }),
+    );
+  }
+  if (patch.ordered_outputs !== undefined) {
+    next.orderedOutputs = (patch.ordered_outputs as { amount: number; script_pubkey_hex: string }[]).map((o) => ({
+      amount: BigInt(o.amount),
+      scriptPubkey: hexToBytes(o.script_pubkey_hex),
+    }));
+  }
+  return next;
+}
 
 describe('EncryptedEventHeaderV1', () => {
   const f = vectors.encrypted_event_header_v1.fields;

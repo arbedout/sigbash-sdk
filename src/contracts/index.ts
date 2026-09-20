@@ -70,6 +70,7 @@ export {
   SUPPORTED_APPROVAL_COMMITMENT_VERSIONS,
   APPROVAL_COMMITMENT_TAG,
   APPROVAL_COMMITMENT_LENGTH,
+  ApprovalCommitmentDecodeError,
   encodeApprovalCommitmentV1,
   decodeApprovalCommitmentV1,
   computeApprovalCommitment,

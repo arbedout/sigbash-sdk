@@ -30,8 +30,23 @@
  * versioned contract, the codec, and its vectors.
  */
 
-import { bytesToHex, concatBytes, contractHeader, Decoder, expectExhausted, hexToBytes, lengthDelimited, readBytes, readContractHeader, readLengthDelimited, readU16, readU32, readU64, readU8, u16be, u32be, u64be, u8be, utf8, taggedHash } from './encoding';
+import { bytesToHex, concatBytes, contractHeader, ContractVersionError, Decoder, expectExhausted, hexToBytes, lengthDelimited, readBytes, readContractHeader, readLengthDelimited, readU16, readU32, readU64, readU8, u16be, u32be, u64be, u8be, utf8, taggedHash } from './encoding';
 import { decodeNetworkId, encodeNetworkId, NetworkId } from './network';
+import { SigbashSDKError } from '../errors';
+
+/**
+ * Typed rejection of any malformed commitment encoding: truncated input,
+ * length prefixes that overrun the buffer, invalid UTF-8, or trailing
+ * bytes. Decode never silently reinterpret bytes; every structural fault
+ * surfaces as this class (version faults stay ContractVersionError).
+ */
+export class ApprovalCommitmentDecodeError extends SigbashSDKError {
+  constructor(message: string) {
+    super(message, 'CONTRACT_DECODE_INVALID');
+    this.name = 'ApprovalCommitmentDecodeError';
+    Object.setPrototypeOf(this, ApprovalCommitmentDecodeError.prototype);
+  }
+}
 
 export const APPROVAL_COMMITMENT_CONTRACT_ID = 0x03;
 export const APPROVAL_COMMITMENT_VERSION = 1;
@@ -114,6 +129,17 @@ export function encodeApprovalCommitmentV1(fields: ApprovalCommitmentFieldsV1): 
 }
 
 export function decodeApprovalCommitmentV1(bytes: Uint8Array): ApprovalCommitmentFieldsV1 {
+  try {
+    return decodeApprovalCommitmentV1Bytes(bytes);
+  } catch (error) {
+    if (error instanceof ApprovalCommitmentDecodeError || error instanceof ContractVersionError) {
+      throw error;
+    }
+    throw new ApprovalCommitmentDecodeError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function decodeApprovalCommitmentV1Bytes(bytes: Uint8Array): ApprovalCommitmentFieldsV1 {
   const d: Decoder = { data: bytes, offset: 0 };
   readContractHeader(d, APPROVAL_COMMITMENT_CONTRACT_ID, SUPPORTED_APPROVAL_COMMITMENT_VERSIONS, 'ApprovalCommitmentV1');
   const networkCode = readU8(d, 'network');

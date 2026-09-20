@@ -71,7 +71,238 @@
       ]
     },
     "encoding_hex": "030101000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000002461616161616161612d626262622d346363632d386464642d656565656565656565656565202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f00010000001e65787465726e616c2d787075622d66696e6765727072696e742d61316232000000020009eb100001101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f00000001fffffffd0000000000015f90000000225120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000000810002000000000000afc8000000225120bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000000000009c40000000225120cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-    "commitment_hex": "dc9741a7cdd9456e2d6a30c6a62bd55b659682c10bddd6fe173c4910685062c5"
+    "commitment_hex": "dc9741a7cdd9456e2d6a30c6a62bd55b659682c10bddd6fe173c4910685062c5",
+    "mutations": [
+      {
+        "name": "network",
+        "patch": {
+          "network": "mainnet"
+        },
+        "commitment_hex": "8caf9d29909f508b92ba4c1485dbea53c03a170457cb56c3967c766147bc55f8"
+      },
+      {
+        "name": "wallet_id",
+        "patch": {
+          "wallet_id_hex": "ff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        },
+        "commitment_hex": "32925a46b3dbc11a6051c77411a34abecb483593135d13132bac59b1545a5fae"
+      },
+      {
+        "name": "policy_version_id",
+        "patch": {
+          "policy_version_id": "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+        },
+        "commitment_hex": "cc0476a4761987c27347e66fbb2f37d9959b333571460bf7b92a9786d426f009"
+      },
+      {
+        "name": "selected_tapleaf_hash",
+        "patch": {
+          "selected_tapleaf_hash_hex": "ff2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        },
+        "commitment_hex": "349377f5e7f0874ad019cb9489d8ba16b810c1508e24d665183c640fac0704f8"
+      },
+      {
+        "name": "signer_id_changed",
+        "patch": {
+          "selected_customer_signer_ids": [
+            "external-xpub-fingerprint-c3d4"
+          ]
+        },
+        "commitment_hex": "c96ae60e2b459c929ff834ab6e3f3724dec25a72fbe390e95e6fb17cec893483"
+      },
+      {
+        "name": "signer_ids_extra",
+        "patch": {
+          "selected_customer_signer_ids": [
+            "external-xpub-fingerprint-a1b2",
+            "external-xpub-fingerprint-c3d4"
+          ]
+        },
+        "commitment_hex": "7ab1a006b5d62700b9dbd6e9496c13e80059d49ce069ba3c907c8d5dc4290763"
+      },
+      {
+        "name": "unsigned_tx_version",
+        "patch": {
+          "unsigned_tx_version": 3
+        },
+        "commitment_hex": "0ce9fa1d864aa30c767571963afe623eefe57e81771be77f26b65357a1f78384"
+      },
+      {
+        "name": "unsigned_tx_locktime",
+        "patch": {
+          "unsigned_tx_locktime": 650001
+        },
+        "commitment_hex": "1160aa3702104611be8ca7091c233fe7f48468f66ca75d849c9de508a328896a"
+      },
+      {
+        "name": "input_order",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+              "outpoint_vout": 2,
+              "sequence": 4294967293,
+              "prevout_amount": 80000,
+              "prevout_script_pubkey_hex": "5120dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "sighash_type": 1
+            },
+            {
+              "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 1,
+              "sequence": 4294967293,
+              "prevout_amount": 90000,
+              "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sighash_type": 129
+            }
+          ]
+        },
+        "commitment_hex": "751cd5a2224944add5bad5b60d78f0c677ecedada037fa990558087c18aeae60"
+      },
+      {
+        "name": "outpoint_txid",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "ff1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 1,
+              "sequence": 4294967293,
+              "prevout_amount": 90000,
+              "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sighash_type": 129
+            }
+          ]
+        },
+        "commitment_hex": "33b1af0f5289e37e4dfff0f91e127d8827702e523dca4693ed0f2fb7e2d2879b"
+      },
+      {
+        "name": "outpoint_vout",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 2,
+              "sequence": 4294967293,
+              "prevout_amount": 90000,
+              "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sighash_type": 129
+            }
+          ]
+        },
+        "commitment_hex": "11707cdd69da698227f3c8fda512d9b8d6e3d962b03df3b6eef42fb616d9669f"
+      },
+      {
+        "name": "sequence",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 1,
+              "sequence": 4294967294,
+              "prevout_amount": 90000,
+              "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sighash_type": 129
+            }
+          ]
+        },
+        "commitment_hex": "800db796152dae7a4b25a4084a9570c039f624171133e8ec9d387cc88db55e11"
+      },
+      {
+        "name": "prevout_amount",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 1,
+              "sequence": 4294967293,
+              "prevout_amount": 90001,
+              "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sighash_type": 129
+            }
+          ]
+        },
+        "commitment_hex": "52f75182bc65ecfd1a698fff37b52def79e78ce4542d0051a8e13f7fc41c08b4"
+      },
+      {
+        "name": "prevout_script_pubkey",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 1,
+              "sequence": 4294967293,
+              "prevout_amount": 90000,
+              "prevout_script_pubkey_hex": "5120dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "sighash_type": 129
+            }
+          ]
+        },
+        "commitment_hex": "d6b0a0e3754309b7469a0ce19c8e38caf20bcd41d074a5e919da9d7f359e3953"
+      },
+      {
+        "name": "sighash_type",
+        "patch": {
+          "ordered_inputs": [
+            {
+              "outpoint_txid_hex": "101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
+              "outpoint_vout": 1,
+              "sequence": 4294967293,
+              "prevout_amount": 90000,
+              "prevout_script_pubkey_hex": "5120aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "sighash_type": 1
+            }
+          ]
+        },
+        "commitment_hex": "d0df9a94d87b1fe28998eb38527499a44a40676488c0482fae345c3526ea2b2e"
+      },
+      {
+        "name": "output_order",
+        "patch": {
+          "ordered_outputs": [
+            {
+              "amount": 40000,
+              "script_pubkey_hex": "5120cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            },
+            {
+              "amount": 45000,
+              "script_pubkey_hex": "5120bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        "commitment_hex": "fd4ff2727659b846e61a94ba5f4bedee724b2e944a6eac17515c244b4ef66c4d"
+      },
+      {
+        "name": "output_amount",
+        "patch": {
+          "ordered_outputs": [
+            {
+              "amount": 45001,
+              "script_pubkey_hex": "5120bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            {
+              "amount": 40000,
+              "script_pubkey_hex": "5120cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "commitment_hex": "8028860e59749a6293740073c4f1f3db89ea6d33ecb7535428d26f238ccf130a"
+      },
+      {
+        "name": "output_script_pubkey",
+        "patch": {
+          "ordered_outputs": [
+            {
+              "amount": 45000,
+              "script_pubkey_hex": "5120dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            {
+              "amount": 40000,
+              "script_pubkey_hex": "5120cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+          ]
+        },
+        "commitment_hex": "f8043ae2f33f11c1b0b00def9b48a418761714a0eb4b90ef8455e57f7a858bab"
+      }
+    ]
   },
   "encrypted_event_header_v1": {
     "fields": {
