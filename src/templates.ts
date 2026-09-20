@@ -3,9 +3,23 @@
  *
  * Templates generate POET v1.1 policy JSON from simple parameters.
  * Use templates instead of raw POET JSON for common use cases.
+ *
+ * The registry is bounded by the soundness condition census: every
+ * template emits only census-graded condition types in their reviewed
+ * forms, the only negation is the remediated destination blocklist (NOT
+ * over an ANY-selector atom), and no template reads the wall clock —
+ * time constraints take explicit timestamps, dates, and hours. As a
+ * census-per-output-comparator consequence no template expresses a
+ * spend-amount cap; amount bands live in the governance workflow lane.
+ *
+ * Every policy returned by buildPolicyFromTemplate is re-checked against
+ * the fail-closed selection gate from the contracts catalogue, so a
+ * registry entry that drifts outside the census cannot return a policy.
  */
 
 import type { POETPolicy } from './types';
+import { validatePolicySelectionAst } from './contracts/policyTemplates';
+import { parseNetworkId } from './contracts/network';
 
 /** Template parameter specification */
 export interface TemplateParam {
@@ -13,7 +27,6 @@ export interface TemplateParam {
   type: 'number' | 'string' | 'string[]' | 'boolean';
   description: string;
   required: boolean;
-  default?: unknown;
 }
 
 /** Template definition */
@@ -26,194 +39,72 @@ export interface PolicyTemplate {
 }
 
 // ---------------------------------------------------------------------------
-// Template: WeeklySpendingLimitTemplate
+// Parameter validation — same shapes the contracts catalogue builders use
 // ---------------------------------------------------------------------------
 
-/** Parameters for WeeklySpendingLimitTemplate */
-export interface WeeklySpendingLimitParams {
-  /** Maximum satoshis per rolling 7-day window */
-  weeklyLimitSats: number;
+function assertPositiveSafeInt(value: unknown, where: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${where} must be a positive safe integer`);
+  }
+  return value;
 }
 
-const WeeklySpendingLimitTemplate: PolicyTemplate = {
-  id: 'weekly-spending-limit',
-  name: 'Weekly Spending Limit',
-  description: 'Limits spending to one transaction per week with a maximum amount cap.',
-  params: [
-    {
-      name: 'weeklyLimitSats',
-      type: 'number',
-      description: 'Maximum satoshis allowed per rolling 7-day period',
-      required: true,
-      default: 1000000,
-    },
-  ],
-  build(params: Record<string, unknown>): POETPolicy {
-    const weeklyLimitSats = params['weeklyLimitSats'] as number;
-    if (typeof weeklyLimitSats !== 'number' || weeklyLimitSats <= 0) {
-      throw new Error('WeeklySpendingLimitTemplate: weeklyLimitSats must be a positive number');
-    }
+const HOUR_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MIN = 1;
+const DAY_MAX = 7;
 
-    return {
-      version: '1.1',
-      policy: {
-        type: 'operator',
-        operator: 'AND',
-        children: [
-          {
-            type: 'condition',
-            conditionType: 'OUTPUT_VALUE',
-            conditionParams: {
-              selector: { type: 'ALL' },
-              operator: 'LTE',
-              value: weeklyLimitSats,
-            },
-            description: `Amount must be <= ${weeklyLimitSats} sats`,
-          },
-          {
-            type: 'condition',
-            conditionType: 'COUNT_BASED_CONSTRAINT',
-            conditionParams: {
-              max_uses: 1,
-              reset_interval: 'weekly',
-              reset_type: 'rolling',
-            },
-            description: 'Can only use once per week (rolling 7-day window)',
-          },
-        ],
-      } as POETPolicy['policy'],
-    };
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Template: TreasuryVaultTemplate
-// ---------------------------------------------------------------------------
-
-/** Parameters for TreasuryVaultTemplate */
-export interface TreasuryVaultParams {
-  /** Admin override key identifier (64-char xonly hex pubkey) */
-  adminKeyIdentifier: string;
-  /** Hot-wallet limit in satoshis */
-  hotWalletLimitSats?: number;
-  /** Allowed destination addresses for hot-wallet withdrawals */
-  allowedAddresses?: string[];
-  /** Bitcoin network */
-  network?: string;
+function assertHour(value: unknown, where: string): string {
+  if (typeof value !== 'string' || !HOUR_PATTERN.test(value)) {
+    throw new Error(`${where} must be "HH:MM" in UTC`);
+  }
+  return value;
 }
 
-const TreasuryVaultTemplate: PolicyTemplate = {
-  id: 'treasury-vault',
-  name: 'Treasury Vault',
-  description:
-    'Conditional spending limits: IF admin key NOT present, THEN restrict destinations and amounts.',
-  params: [
-    {
-      name: 'adminKeyIdentifier',
-      type: 'string',
-      description: '64-char xonly hex pubkey for the admin override key',
-      required: true,
-    },
-    {
-      name: 'hotWalletLimitSats',
-      type: 'number',
-      description: 'Hot-wallet withdrawal limit in satoshis (default: 100000)',
-      required: false,
-      default: 100000,
-    },
-    {
-      name: 'allowedAddresses',
-      type: 'string[]',
-      description: 'Whitelisted destination addresses for hot-wallet withdrawals',
-      required: false,
-      default: [],
-    },
-    {
-      name: 'network',
-      type: 'string',
-      description: 'Bitcoin network (default: signet)',
-      required: false,
-      default: 'signet',
-    },
-  ],
-  build(params: Record<string, unknown>): POETPolicy {
-    const adminKey = params['adminKeyIdentifier'] as string;
-    if (typeof adminKey !== 'string' || (adminKey.length !== 64 && adminKey.length !== 66)) {
-      throw new Error(
-        'TreasuryVaultTemplate: adminKeyIdentifier must be a 64 or 66 char hex string'
-      );
-    }
-    const limitSats =
-      typeof params['hotWalletLimitSats'] === 'number' ? params['hotWalletLimitSats'] : 100000;
-    const addresses = Array.isArray(params['allowedAddresses'])
-      ? (params['allowedAddresses'] as string[])
-      : [];
-    const network = typeof params['network'] === 'string' ? params['network'] : 'signet';
+function assertIsoDate(value: unknown, where: string): string {
+  if (typeof value !== 'string' || !ISO_DATE_PATTERN.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+    throw new Error(`${where} must be an ISO date "YYYY-MM-DD"`);
+  }
+  return value;
+}
 
-    return {
-      version: '1.1',
-      policy: {
-        type: 'operator',
-        operator: 'IMPLIES',
-        children: [
-          {
-            type: 'operator',
-            operator: 'NOT',
-            children: [
-              {
-                type: 'condition',
-                conditionType: 'REQKEY',
-                conditionParams: {
-                  key_identifier: adminKey,
-                  key_type: 'TAP_LEAF_XONLY_PUBKEY',
-                },
-                description: 'Admin override key',
-              },
-            ],
-            description: 'IF admin key is NOT in signing set',
-          },
-          {
-            type: 'operator',
-            operator: 'AND',
-            children: [
-              {
-                type: 'condition',
-                conditionType: 'OUTPUT_VALUE',
-                conditionParams: {
-                  selector: { type: 'ALL' },
-                  operator: 'LTE',
-                  value: limitSats,
-                },
-                description: `Amount must be <= ${limitSats} sats`,
-              },
-              {
-                type: 'condition',
-                conditionType: 'OUTPUT_DEST_IS_IN_SETS',
-                conditionParams: {
-                  selector: { type: 'ALL' },
-                  addresses,
-                  network,
-                  require_change_to_input_addresses: true,
-                },
-                description: 'Destination must be in approved whitelist',
-              },
-              {
-                type: 'condition',
-                conditionType: 'COUNT_BASED_CONSTRAINT',
-                conditionParams: {
-                  max_uses: 1,
-                  reset_interval: 'daily',
-                  reset_type: 'rolling',
-                },
-                description: 'Once per 24 hours (rolling window)',
-              },
-            ],
-          },
-        ],
-      } as POETPolicy['policy'],
-    };
-  },
-};
+function assertActiveDays(value: unknown, where: string): number[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${where} must be a non-empty array of day numbers`);
+  }
+  const seen = new Set<number>();
+  for (const day of value) {
+    if (typeof day !== 'number' || !Number.isSafeInteger(day) || day < DAY_MIN || day > DAY_MAX) {
+      throw new Error(`${where} entries must be integers ${DAY_MIN} (Mon) through ${DAY_MAX} (Sun)`);
+    }
+    seen.add(day);
+  }
+  return [...seen].sort((a, b) => a - b);
+}
+
+function assertAddressList(value: unknown, where: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${where} must be a non-empty array of addresses`);
+  }
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length < 14 || entry.length > 90 || /\s/.test(entry)) {
+      throw new Error(`${where} entries must be address strings without whitespace`);
+    }
+    seen.add(entry);
+  }
+  if (seen.size !== value.length) {
+    throw new Error(`${where} must not contain duplicate addresses`);
+  }
+  return [...value];
+}
+
+function assertNetwork(value: unknown, where: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${where} must be a network string`);
+  }
+  return parseNetworkId(value);
+}
 
 // ---------------------------------------------------------------------------
 // Template: BitcoinInheritanceTemplate
@@ -221,36 +112,36 @@ const TreasuryVaultTemplate: PolicyTemplate = {
 
 /** Parameters for BitcoinInheritanceTemplate */
 export interface BitcoinInheritanceParams {
-  /** UNIX timestamp after which beneficiaries may spend */
-  unlockTimestamp?: number;
+  /** UNIX timestamp (seconds) after which beneficiaries may spend */
+  startUnixSeconds: number;
 }
 
 const BitcoinInheritanceTemplate: PolicyTemplate = {
   id: 'bitcoin-inheritance',
   name: 'Bitcoin Inheritance Policy',
   description:
-    'Time-locked inheritance. Funds automatically unlock for beneficiaries after a predetermined date.',
+    'Time-locked inheritance. Funds unlock for beneficiaries after the configured unlock time.',
   params: [
     {
-      name: 'unlockTimestamp',
+      name: 'startUnixSeconds',
       type: 'number',
-      description:
-        'UNIX timestamp (seconds) after which beneficiaries can spend (default: 10 years from now)',
-      required: false,
+      description: 'UNIX timestamp (seconds) after which beneficiaries can spend',
+      required: true,
     },
   ],
   build(params: Record<string, unknown>): POETPolicy {
-    const tenYearsFromNow = Math.floor(Date.now() / 1000) + Math.round(10 * 365.25 * 24 * 3600);
-    const unlockTimestamp =
-      typeof params['unlockTimestamp'] === 'number' ? params['unlockTimestamp'] : tenYearsFromNow;
+    const startUnixSeconds = assertPositiveSafeInt(
+      params['startUnixSeconds'],
+      'BitcoinInheritanceTemplate: startUnixSeconds'
+    );
 
     return {
       version: '1.1',
       policy: {
         type: 'condition',
         conditionType: 'TIME_BASED_CONSTRAINT',
-        conditionParams: { constraint_type: 'after', start_time: unlockTimestamp },
-        description: `Beneficiaries can access funds after UNIX ${unlockTimestamp}`,
+        conditionParams: { constraint_type: 'after', start_time: startUnixSeconds },
+        description: `Beneficiaries can access funds after UNIX ${startUnixSeconds}`,
       },
     };
   },
@@ -262,38 +153,41 @@ const BitcoinInheritanceTemplate: PolicyTemplate = {
 
 /** Parameters for BlacklistTemplate */
 export interface BlacklistParams {
-  /** Blocked addresses */
+  /** Banned addresses */
   blockedAddresses: string[];
-  /** Bitcoin network */
-  network?: string;
+  /** Bitcoin network (signet or mainnet) */
+  network: string;
 }
 
 const BlacklistTemplate: PolicyTemplate = {
   id: 'blacklist',
   name: 'Address Blacklist',
-  description: 'Prevents sending Bitcoin to specific blocked addresses.',
+  description: 'Prevents sending Bitcoin to specific banned addresses.',
   params: [
     {
       name: 'blockedAddresses',
       type: 'string[]',
-      description: 'Array of blocked Bitcoin addresses',
+      description: 'Array of banned Bitcoin addresses',
       required: true,
     },
     {
       name: 'network',
       type: 'string',
-      description: 'Bitcoin network (default: mainnet)',
-      required: false,
-      default: 'mainnet',
+      description: 'Bitcoin network (signet or mainnet)',
+      required: true,
     },
   ],
   build(params: Record<string, unknown>): POETPolicy {
-    const blockedAddresses = params['blockedAddresses'] as string[];
-    if (!Array.isArray(blockedAddresses) || blockedAddresses.length === 0) {
-      throw new Error('BlacklistTemplate: blockedAddresses must be a non-empty array');
-    }
-    const network = typeof params['network'] === 'string' ? params['network'] : 'mainnet';
+    const blockedAddresses = assertAddressList(
+      params['blockedAddresses'],
+      'BlacklistTemplate: blockedAddresses'
+    );
+    const network = assertNetwork(params['network'], 'BlacklistTemplate: network');
 
+    // The remediated blocklist negation: the NOT wraps an ANY-selector
+    // atom, so the policy requires that no output is in the banned set.
+    // Negating an ALL-selector atom would only require one clean output
+    // and would let a transaction carry a banned destination beside it.
     return {
       version: '1.1',
       policy: {
@@ -304,11 +198,11 @@ const BlacklistTemplate: PolicyTemplate = {
             type: 'condition',
             conditionType: 'OUTPUT_DEST_IS_IN_SETS',
             conditionParams: {
-              selector: { type: 'ALL' },
+              selector: { type: 'ANY' },
               addresses: blockedAddresses,
               network,
             },
-            description: `Block ${blockedAddresses.length} address(es)`,
+            description: `No output may go to any of ${blockedAddresses.length} banned address(es)`,
           },
         ],
       } as POETPolicy['policy'],
@@ -322,61 +216,98 @@ const BlacklistTemplate: PolicyTemplate = {
 
 /** Parameters for BusinessHoursOnlyTemplate */
 export interface BusinessHoursOnlyParams {
-  /**
-   * Start of allowed window in UTC, "HH:MM" format.
-   * Default: "14:00" (9 AM EST = 14:00 UTC)
-   */
-  startHourUTC?: string;
-  /**
-   * End of allowed window in UTC, "HH:MM" format.
-   * Default: "22:00" (5 PM EST = 22:00 UTC)
-   */
-  endHourUTC?: string;
+  /** Days 1 (Mon) through 7 (Sun) the window applies to */
+  activeDays: number[];
+  /** Daily window start "HH:MM" in UTC */
+  startHourUtc: string;
+  /** Daily window end "HH:MM" in UTC, after startHourUtc */
+  endHourUtc: string;
+  /** Window start date "YYYY-MM-DD" */
+  startDate: string;
+  /** Window end date "YYYY-MM-DD", after startDate */
+  endDate: string;
+  /** Window start, UNIX seconds */
+  startUnixSeconds: number;
+  /** Window end, UNIX seconds, after startUnixSeconds */
+  endUnixSeconds: number;
 }
 
 const BusinessHoursOnlyTemplate: PolicyTemplate = {
   id: 'business-hours-only',
   name: 'Business Hours Only',
   description:
-    'Transactions only allowed during business hours (Monday–Friday). ' +
-    'Prevents after-hours or weekend activity. Hours expressed in UTC.',
+    'Signing restricted to a recurring daily window on selected days. ' +
+    'The window is fully explicit — hours in UTC, dates as ISO days, ' +
+    'bounds as UNIX seconds.',
   params: [
     {
-      name: 'startHourUTC',
-      type: 'string',
-      description: 'Start of allowed window in UTC, "HH:MM" format (default: "14:00" = 9 AM EST)',
-      required: false,
-      default: '14:00',
+      name: 'activeDays',
+      type: 'number[]',
+      description: 'Days 1 (Mon) through 7 (Sun) the window applies to',
+      required: true,
     },
     {
-      name: 'endHourUTC',
+      name: 'startHourUtc',
       type: 'string',
-      description: 'End of allowed window in UTC, "HH:MM" format (default: "22:00" = 5 PM EST)',
-      required: false,
-      default: '22:00',
+      description: 'Daily window start "HH:MM" in UTC',
+      required: true,
+    },
+    {
+      name: 'endHourUtc',
+      type: 'string',
+      description: 'Daily window end "HH:MM" in UTC, after startHourUtc',
+      required: true,
+    },
+    {
+      name: 'startDate',
+      type: 'string',
+      description: 'Window start date "YYYY-MM-DD"',
+      required: true,
+    },
+    {
+      name: 'endDate',
+      type: 'string',
+      description: 'Window end date "YYYY-MM-DD", after startDate',
+      required: true,
+    },
+    {
+      name: 'startUnixSeconds',
+      type: 'number',
+      description: 'Window start, UNIX seconds',
+      required: true,
+    },
+    {
+      name: 'endUnixSeconds',
+      type: 'number',
+      description: 'Window end, UNIX seconds, after startUnixSeconds',
+      required: true,
     },
   ],
   build(params: Record<string, unknown>): POETPolicy {
-    const startHourUTC =
-      typeof params['startHourUTC'] === 'string' ? params['startHourUTC'] : '14:00';
-    const endHourUTC =
-      typeof params['endHourUTC'] === 'string' ? params['endHourUTC'] : '22:00';
-
-    const hourPattern = /^\d{2}:\d{2}$/;
-    if (!hourPattern.test(startHourUTC)) {
-      throw new Error('BusinessHoursOnlyTemplate: startHourUTC must be "HH:MM" format');
+    const where = 'BusinessHoursOnlyTemplate';
+    const activeDays = assertActiveDays(params['activeDays'], `${where}: activeDays`);
+    const startHour = assertHour(params['startHourUtc'], `${where}: startHourUtc`);
+    const endHour = assertHour(params['endHourUtc'], `${where}: endHourUtc`);
+    const startDate = assertIsoDate(params['startDate'], `${where}: startDate`);
+    const endDate = assertIsoDate(params['endDate'], `${where}: endDate`);
+    const startUnixSeconds = assertPositiveSafeInt(
+      params['startUnixSeconds'],
+      `${where}: startUnixSeconds`
+    );
+    const endUnixSeconds = assertPositiveSafeInt(
+      params['endUnixSeconds'],
+      `${where}: endUnixSeconds`
+    );
+    if (endDate <= startDate) {
+      throw new Error(`${where}: endDate must be after startDate`);
     }
-    if (!hourPattern.test(endHourUTC)) {
-      throw new Error('BusinessHoursOnlyTemplate: endHourUTC must be "HH:MM" format');
+    if (endUnixSeconds <= startUnixSeconds) {
+      throw new Error(`${where}: endUnixSeconds must be after startUnixSeconds`);
     }
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const twoHundredYearsSec = 200 * 365 * 24 * 3600;
-    const startTimestamp = nowSec;
-    const endTimestamp = nowSec + twoHundredYearsSec;
-
-    const startDateISO = new Date(startTimestamp * 1000).toISOString().slice(0, 10);
-    const endDateISO = new Date(endTimestamp * 1000).toISOString().slice(0, 10);
+    const toMinutes = (h: string): number => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+    if (toMinutes(endHour) <= toMinutes(startHour)) {
+      throw new Error(`${where}: endHourUtc must be after startHourUtc`);
+    }
 
     return {
       version: '1.1',
@@ -385,15 +316,15 @@ const BusinessHoursOnlyTemplate: PolicyTemplate = {
         conditionType: 'TIME_BASED_CONSTRAINT',
         conditionParams: {
           constraint_type: 'within',
-          active_days: [1, 2, 3, 4, 5],  // Monday–Friday
-          start_date_within: startDateISO,
-          end_date_within: endDateISO,
-          start_hour: startHourUTC,
-          end_hour: endHourUTC,
-          start_time: startTimestamp,
-          end_time: endTimestamp,
+          active_days: activeDays,
+          start_hour: startHour,
+          end_hour: endHour,
+          start_date_within: startDate,
+          end_date_within: endDate,
+          start_time: startUnixSeconds,
+          end_time: endUnixSeconds,
         },
-        description: `Only during business hours: Mon–Fri, ${startHourUTC}–${endHourUTC} UTC`,
+        description: `Only during ${activeDays.join(', ')} ${startHour}–${endHour} UTC`,
       },
     };
   },
@@ -410,14 +341,17 @@ const NoNewOutputsConsolidationTemplate: PolicyTemplate = {
     'Safe UTXO consolidation — prevents sending to external addresses. ' +
     'All outputs must be to addresses already present in the transaction inputs.',
   params: [],
-  build(_params: Record<string, unknown>): POETPolicy {
+  build(params: Record<string, unknown>): POETPolicy {
+    if (params !== undefined && typeof params === 'object' && !Array.isArray(params) && Object.keys(params).length > 0) {
+      throw new Error('NoNewOutputsConsolidationTemplate: takes no parameters');
+    }
     return {
       version: '1.1',
       policy: {
         type: 'condition',
         conditionType: 'DERIVED_NO_NEW_OUTPUTS',
         conditionParams: {
-          expected_value: 1,
+          expected_value: true,
         },
         description: 'All outputs must be to addresses from transaction inputs (consolidation only)',
       },
@@ -431,8 +365,6 @@ const NoNewOutputsConsolidationTemplate: PolicyTemplate = {
 
 /** Registry of all built-in policy templates. */
 export const POLICY_TEMPLATES: Record<string, PolicyTemplate> = {
-  [WeeklySpendingLimitTemplate.id]: WeeklySpendingLimitTemplate,
-  [TreasuryVaultTemplate.id]: TreasuryVaultTemplate,
   [BitcoinInheritanceTemplate.id]: BitcoinInheritanceTemplate,
   [BlacklistTemplate.id]: BlacklistTemplate,
   [BusinessHoursOnlyTemplate.id]: BusinessHoursOnlyTemplate,
@@ -442,10 +374,15 @@ export const POLICY_TEMPLATES: Record<string, PolicyTemplate> = {
 /**
  * Build a POET policy from a template ID and parameters.
  *
- * @param templateId - Template identifier (e.g. 'weekly-spending-limit')
+ * Every returned policy passes the fail-closed selection gate: census
+ * NOT SOUND or removed condition types, disabled registry slots, REQKEY,
+ * and every negation outside the remediated blocklist shape are
+ * rejected, so a template that drifts outside the census cannot return.
+ *
+ * @param templateId - Template identifier (e.g. 'bitcoin-inheritance')
  * @param params - Template-specific parameters
  * @returns Compiled POETPolicy object
- * @throws Error if template not found or params invalid
+ * @throws Error if template not found, params invalid, or the built policy is outside the census vocabulary
  */
 export function buildPolicyFromTemplate(
   templateId: string,
@@ -466,5 +403,7 @@ export function buildPolicyFromTemplate(
     }
   }
 
-  return template.build(params);
+  const policy = template.build(params);
+  validatePolicySelectionAst(policy.policy, { allowUnknownConditionTypes: false });
+  return policy;
 }

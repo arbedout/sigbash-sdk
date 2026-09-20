@@ -1,95 +1,119 @@
 /**
  * Unit tests for buildPolicyFromTemplate (templates.ts)
  *
- * Tests the four production templates synced from web/js/template-definitions.js:
- *   weekly-spending-limit, treasury-vault, bitcoin-inheritance, blacklist
+ * The registry is bounded by the soundness condition census: every
+ * template emits only census-graded conditions in their reviewed forms,
+ * the only negation is the remediated destination blocklist shape, and
+ * no template reads the wall clock. Each test builds through the same
+ * fail-closed selection gate the contracts catalogue uses.
  */
 
-import { buildPolicyFromTemplate } from './templates';
+import { buildPolicyFromTemplate, POLICY_TEMPLATES } from './templates';
+import { validatePolicySelectionAst } from './contracts/policyTemplates';
+import type { POETPolicy, PolicyNode } from './types';
+
+const AVAILABLE_IDS = Object.keys(POLICY_TEMPLATES).sort().join(', ');
+
+const businessHoursParams = {
+  activeDays: [1, 2, 3, 4, 5],
+  startHourUtc: '14:00',
+  endHourUtc: '22:00',
+  startDate: '2026-10-01',
+  endDate: '2027-10-01',
+  startUnixSeconds: 1790000000,
+  endUnixSeconds: 1820000000,
+};
+
+function conditionTypes(policy: PolicyNode): string[] {
+  const found: string[] = [];
+  const walk = (node: PolicyNode): void => {
+    if (node.type === 'condition') {
+      found.push(node.conditionType);
+      return;
+    }
+    node.children.forEach(walk);
+  };
+  walk(policy);
+  return found;
+}
 
 describe('buildPolicyFromTemplate', () => {
   // ---------------------------------------------------------------------------
-  // Scenario 1 – Unknown template ID
+  // Registry-wide census discipline
   // ---------------------------------------------------------------------------
-  it('1: unknown template ID throws with list of available templates', () => {
+  it('registry offers exactly the conformant templates', () => {
+    expect(AVAILABLE_IDS).toBe(
+      'bitcoin-inheritance, blacklist, business-hours-only, no-new-outputs-consolidation'
+    );
+  });
+
+  it('no template emits a census NOT SOUND condition type, REQKEY, or a disabled slot', () => {
+    const forbidden = ['OUTPUT_VALUE', 'REQKEY', 'INPUT_SOURCE_IS_IN_SETS', 'OUTPUT_OP_RETURN'];
+    for (const [id, template] of Object.entries(POLICY_TEMPLATES)) {
+      const built = buildPolicyFromTemplate(id, sampleParams(id));
+      for (const conditionType of conditionTypes(built.policy)) {
+        expect(forbidden).not.toContain(conditionType);
+      }
+      expect(template.params.every((p) => p.required)).toBe(true);
+    }
+  });
+
+  it('every template output passes the fail-closed census gate', () => {
+    for (const id of Object.keys(POLICY_TEMPLATES)) {
+      const built = buildPolicyFromTemplate(id, sampleParams(id));
+      expect(() =>
+        validatePolicySelectionAst(built.policy, { allowUnknownConditionTypes: false })
+      ).not.toThrow();
+    }
+  });
+
+  it('the census gate rejects a hand-built spend-cap policy, so the gate really binds', () => {
+    const spendCap = {
+      type: 'condition',
+      conditionType: 'OUTPUT_VALUE',
+      conditionParams: { selector: { type: 'ALL' }, operator: 'LTE', value: 1000 },
+    };
+    expect(() =>
+      validatePolicySelectionAst(spendCap, { allowUnknownConditionTypes: false })
+    ).toThrow('not sound');
+  });
+
+  it('building is deterministic — same params produce identical output', () => {
+    for (const id of Object.keys(POLICY_TEMPLATES)) {
+      const first = buildPolicyFromTemplate(id, sampleParams(id));
+      const second = buildPolicyFromTemplate(id, sampleParams(id));
+      expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Unknown template ID
+  // ---------------------------------------------------------------------------
+  it('unknown template ID throws with list of available templates', () => {
     expect(() => buildPolicyFromTemplate('no-such-template', {})).toThrow(
-      "Unknown policy template 'no-such-template'. Available: weekly-spending-limit, treasury-vault, bitcoin-inheritance, blacklist"
+      `Unknown policy template 'no-such-template'. Available: ${AVAILABLE_IDS}`
+    );
+  });
+
+  it('removed templates fail through the unknown-template path', () => {
+    for (const removedId of ['weekly-spending-limit', 'treasury-vault']) {
+      expect(() => buildPolicyFromTemplate(removedId, {})).toThrow(
+        `Unknown policy template '${removedId}'`
+      );
+    }
+  });
+
+  it('missing required param throws naming the param', () => {
+    expect(() => buildPolicyFromTemplate('blacklist', {})).toThrow(
+      "Template 'blacklist' missing required param: 'blockedAddresses'"
     );
   });
 
   // ---------------------------------------------------------------------------
-  // Scenario 2 – Missing required param (generic check via weekly-spending-limit)
+  // bitcoin-inheritance — explicit unlock time, no wall-clock default
   // ---------------------------------------------------------------------------
-  it('2: missing required param throws naming the param', () => {
-    expect(() => buildPolicyFromTemplate('weekly-spending-limit', {})).toThrow(
-      "Template 'weekly-spending-limit' missing required param: 'weeklyLimitSats'"
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // weekly-spending-limit
-  // ---------------------------------------------------------------------------
-  it('3: weekly-spending-limit with weeklyLimitSats=1_000_000 returns correct policy', () => {
-    const result = buildPolicyFromTemplate('weekly-spending-limit', { weeklyLimitSats: 1_000_000 });
-    expect(result).toMatchObject({
-      version: '1.1',
-      policy: {
-        type: 'operator',
-        operator: 'AND',
-        children: [
-          {
-            type: 'condition',
-            conditionType: 'OUTPUT_VALUE',
-            conditionParams: {
-              selector: { type: 'ALL' },
-              operator: 'LTE',
-              value: 1_000_000,
-            },
-          },
-          {
-            type: 'condition',
-            conditionType: 'COUNT_BASED_CONSTRAINT',
-            conditionParams: {
-              max_uses: 1,
-              reset_interval: 'weekly',
-              reset_type: 'rolling',
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it('4: weekly-spending-limit with weeklyLimitSats=1 (minimum valid) succeeds', () => {
-    const result = buildPolicyFromTemplate('weekly-spending-limit', { weeklyLimitSats: 1 });
-    expect(result.version).toBe('1.1');
-    const policy = result.policy as { children: Array<{ conditionType: string }> };
-    expect(policy.children[0].conditionType).toBe('OUTPUT_VALUE');
-    expect(policy.children[1].conditionType).toBe('COUNT_BASED_CONSTRAINT');
-  });
-
-  it('5: weekly-spending-limit policy has exactly 2 children', () => {
-    const result = buildPolicyFromTemplate('weekly-spending-limit', { weeklyLimitSats: 500_000 });
-    expect((result.policy as { children: unknown[] }).children).toHaveLength(2);
-  });
-
-  it('6: weekly-spending-limit with weeklyLimitSats=0 throws', () => {
-    expect(() =>
-      buildPolicyFromTemplate('weekly-spending-limit', { weeklyLimitSats: 0 })
-    ).toThrow('WeeklySpendingLimitTemplate: weeklyLimitSats must be a positive number');
-  });
-
-  it('7: weekly-spending-limit with weeklyLimitSats=-100 throws', () => {
-    expect(() =>
-      buildPolicyFromTemplate('weekly-spending-limit', { weeklyLimitSats: -100 })
-    ).toThrow('WeeklySpendingLimitTemplate: weeklyLimitSats must be a positive number');
-  });
-
-  // ---------------------------------------------------------------------------
-  // bitcoin-inheritance
-  // ---------------------------------------------------------------------------
-  it('8: bitcoin-inheritance with explicit unlockTimestamp returns TIME_BASED_CONSTRAINT after', () => {
-    const result = buildPolicyFromTemplate('bitcoin-inheritance', { unlockTimestamp: 9999999999 });
+  it('bitcoin-inheritance with explicit startUnixSeconds returns TIME_BASED_CONSTRAINT after', () => {
+    const result = buildPolicyFromTemplate('bitcoin-inheritance', { startUnixSeconds: 9999999999 });
     expect(result).toMatchObject({
       version: '1.1',
       policy: {
@@ -103,27 +127,28 @@ describe('buildPolicyFromTemplate', () => {
     });
   });
 
-  it('9: bitcoin-inheritance without unlockTimestamp defaults to ~10 years from now', () => {
-    const before = Math.floor(Date.now() / 1000);
-    const result = buildPolicyFromTemplate('bitcoin-inheritance', {});
-    const after = Math.floor(Date.now() / 1000);
-    const params = (result.policy as { conditionParams: { start_time: number } }).conditionParams;
-    const tenYearsSeconds = 10 * 365.25 * 24 * 3600;
-    expect(params.start_time).toBeGreaterThanOrEqual(before + tenYearsSeconds - 1);
-    expect(params.start_time).toBeLessThanOrEqual(after + tenYearsSeconds + 1);
+  it('bitcoin-inheritance requires the unlock time — no default is invented', () => {
+    expect(() => buildPolicyFromTemplate('bitcoin-inheritance', {})).toThrow(
+      "Template 'bitcoin-inheritance' missing required param: 'startUnixSeconds'"
+    );
   });
 
-  it('10: bitcoin-inheritance conditionType is TIME_BASED_CONSTRAINT', () => {
-    const result = buildPolicyFromTemplate('bitcoin-inheritance', { unlockTimestamp: 1800000000 });
-    expect((result.policy as { conditionType: string }).conditionType).toBe('TIME_BASED_CONSTRAINT');
-  });
+  it.each([0, -5, 1.5, Number.MAX_SAFE_INTEGER + 1, '1800000000'])(
+    'bitcoin-inheritance rejects non-positive-safe-integer startUnixSeconds (%p)',
+    (bad) => {
+      expect(() => buildPolicyFromTemplate('bitcoin-inheritance', { startUnixSeconds: bad })).toThrow(
+        'startUnixSeconds must be a positive safe integer'
+      );
+    }
+  );
 
   // ---------------------------------------------------------------------------
-  // blacklist
+  // blacklist — remediated blocklist negation (NOT over ANY-selector atom)
   // ---------------------------------------------------------------------------
-  it('11: blacklist with single address returns NOT(OUTPUT_DEST_IS_IN_SETS)', () => {
+  it('blacklist returns NOT over an ANY-selector OUTPUT_DEST_IS_IN_SETS atom', () => {
     const result = buildPolicyFromTemplate('blacklist', {
-      blockedAddresses: ['bc1qbadaddress'],
+      blockedAddresses: ['bc1qbadaddress000000'],
+      network: 'mainnet',
     });
     expect(result).toMatchObject({
       version: '1.1',
@@ -135,8 +160,8 @@ describe('buildPolicyFromTemplate', () => {
             type: 'condition',
             conditionType: 'OUTPUT_DEST_IS_IN_SETS',
             conditionParams: {
-              selector: { type: 'ALL' },
-              addresses: ['bc1qbadaddress'],
+              selector: { type: 'ANY' },
+              addresses: ['bc1qbadaddress000000'],
               network: 'mainnet',
             },
           },
@@ -145,130 +170,139 @@ describe('buildPolicyFromTemplate', () => {
     });
   });
 
-  it('12: blacklist with multiple addresses includes all in OUTPUT_DEST_IS_IN_SETS', () => {
-    const addrs = ['bc1qaddr1', 'bc1qaddr2', 'bc1qaddr3'];
-    const result = buildPolicyFromTemplate('blacklist', { blockedAddresses: addrs });
-    const child = (result.policy as { children: Array<{ conditionParams: { addresses: string[] } }> })
-      .children[0];
+  it('blacklist with multiple addresses includes all in the banned set', () => {
+    const addrs = ['bc1qaddr1000000000000', 'bc1qaddr2000000000000', 'bc1qaddr3000000000000'];
+    const result = buildPolicyFromTemplate('blacklist', { blockedAddresses: addrs, network: 'mainnet' });
+    const child = (
+      result.policy as { children: Array<{ conditionParams: { addresses: string[] } }> }
+    ).children[0];
     expect(child.conditionParams.addresses).toEqual(addrs);
   });
 
-  it('13: blacklist with custom network uses that network', () => {
-    const result = buildPolicyFromTemplate('blacklist', {
-      blockedAddresses: ['addr1'],
-      network: 'signet',
-    });
-    const child = (result.policy as { children: Array<{ conditionParams: { network: string } }> })
-      .children[0];
-    expect(child.conditionParams.network).toBe('signet');
-  });
-
-  it('14: blacklist with empty array throws', () => {
-    expect(() => buildPolicyFromTemplate('blacklist', { blockedAddresses: [] })).toThrow(
-      'BlacklistTemplate: blockedAddresses must be a non-empty array'
-    );
-  });
-
-  it('15: blacklist missing blockedAddresses param throws', () => {
-    expect(() => buildPolicyFromTemplate('blacklist', {})).toThrow(
-      "Template 'blacklist' missing required param: 'blockedAddresses'"
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // treasury-vault
-  // ---------------------------------------------------------------------------
-  it('16: treasury-vault missing adminKeyIdentifier throws', () => {
-    expect(() => buildPolicyFromTemplate('treasury-vault', {})).toThrow(
-      "Template 'treasury-vault' missing required param: 'adminKeyIdentifier'"
-    );
-  });
-
-  it('17: treasury-vault with invalid key length throws', () => {
+  it('blacklist requires an explicit supported network', () => {
     expect(() =>
-      buildPolicyFromTemplate('treasury-vault', {
-        adminKeyIdentifier: 'tooshort',
+      buildPolicyFromTemplate('blacklist', { blockedAddresses: ['bc1qaddr1000000000000'] })
+    ).toThrow("Template 'blacklist' missing required param: 'network'");
+    expect(() =>
+      buildPolicyFromTemplate('blacklist', {
+        blockedAddresses: ['bc1qaddr1000000000000'],
+        network: 'testnet',
       })
-    ).toThrow('TreasuryVaultTemplate: adminKeyIdentifier must be a 64 or 66 char hex string');
+    ).toThrow('unknown network "testnet"');
   });
 
-  it('18: treasury-vault with valid 64-char key returns IMPLIES policy', () => {
-    const adminKey = '0'.repeat(64);
-    const result = buildPolicyFromTemplate('treasury-vault', { adminKeyIdentifier: adminKey });
-    expect(result.version).toBe('1.1');
-    expect((result.policy as { operator: string }).operator).toBe('IMPLIES');
+  it('blacklist rejects empty, duplicated, or malformed address lists', () => {
+    expect(() =>
+      buildPolicyFromTemplate('blacklist', { blockedAddresses: [], network: 'mainnet' })
+    ).toThrow('blockedAddresses must be a non-empty array of addresses');
+    expect(() =>
+      buildPolicyFromTemplate('blacklist', {
+        blockedAddresses: ['bc1qaddr1000000000000', 'bc1qaddr1000000000000'],
+        network: 'mainnet',
+      })
+    ).toThrow('must not contain duplicate addresses');
+    expect(() =>
+      buildPolicyFromTemplate('blacklist', { blockedAddresses: ['short'], network: 'mainnet' })
+    ).toThrow('must be address strings without whitespace');
   });
 
-  it('19: treasury-vault IMPLIES has NOT left child and AND right child', () => {
-    const adminKey = 'a'.repeat(64);
-    const result = buildPolicyFromTemplate('treasury-vault', { adminKeyIdentifier: adminKey });
-    const children = (result.policy as { children: Array<{ operator?: string; type: string }> }).children;
-    expect(children).toHaveLength(2);
-    expect(children[0]).toMatchObject({ type: 'operator', operator: 'NOT' });
-    expect(children[1]).toMatchObject({ type: 'operator', operator: 'AND' });
-  });
-
-  it('20: treasury-vault NOT child contains REQKEY with correct adminKey', () => {
-    const adminKey = 'b'.repeat(64);
-    const result = buildPolicyFromTemplate('treasury-vault', { adminKeyIdentifier: adminKey });
-    const notNode = (result.policy as {
-      children: Array<{ children: Array<{ conditionParams: { key_identifier: string } }> }>;
-    }).children[0];
-    expect(notNode.children[0].conditionParams.key_identifier).toBe(adminKey);
-  });
-
-  it('21: treasury-vault AND child has OUTPUT_VALUE, OUTPUT_DEST_IS_IN_SETS, COUNT_BASED_CONSTRAINT', () => {
-    const adminKey = 'c'.repeat(64);
-    const result = buildPolicyFromTemplate('treasury-vault', { adminKeyIdentifier: adminKey });
-    const andNode = (result.policy as {
-      children: Array<{ children: Array<{ conditionType: string }> }>;
-    }).children[1];
-    const types = andNode.children.map((c) => c.conditionType);
-    expect(types).toContain('OUTPUT_VALUE');
-    expect(types).toContain('OUTPUT_DEST_IS_IN_SETS');
-    expect(types).toContain('COUNT_BASED_CONSTRAINT');
-  });
-
-  it('22: treasury-vault respects custom hotWalletLimitSats', () => {
-    const adminKey = 'd'.repeat(64);
-    const result = buildPolicyFromTemplate('treasury-vault', {
-      adminKeyIdentifier: adminKey,
-      hotWalletLimitSats: 50_000,
+  // ---------------------------------------------------------------------------
+  // business-hours-only — fully explicit window, no wall-clock reads
+  // ---------------------------------------------------------------------------
+  it('business-hours-only returns the explicit within-window condition', () => {
+    const result = buildPolicyFromTemplate('business-hours-only', businessHoursParams);
+    expect(result).toMatchObject({
+      version: '1.1',
+      policy: {
+        type: 'condition',
+        conditionType: 'TIME_BASED_CONSTRAINT',
+        conditionParams: {
+          constraint_type: 'within',
+          active_days: [1, 2, 3, 4, 5],
+          start_hour: '14:00',
+          end_hour: '22:00',
+          start_date_within: '2026-10-01',
+          end_date_within: '2027-10-01',
+          start_time: 1790000000,
+          end_time: 1820000000,
+        },
+      },
     });
-    const andNode = (result.policy as {
-      children: Array<{ children: Array<{ conditionType: string; conditionParams: Record<string, unknown> }> }>;
-    }).children[1];
-    const valueNode = andNode.children.find((c) => c.conditionType === 'OUTPUT_VALUE');
-    expect(valueNode?.conditionParams['value']).toBe(50_000);
   });
 
-  it('23: treasury-vault respects custom allowedAddresses', () => {
-    const adminKey = 'e'.repeat(64);
-    const addrs = ['tb1qfoo', 'tb1qbar'];
-    const result = buildPolicyFromTemplate('treasury-vault', {
-      adminKeyIdentifier: adminKey,
-      allowedAddresses: addrs,
+  it('every business-hours-only field is required — no defaults, no clock reads', () => {
+    for (const name of Object.keys(businessHoursParams)) {
+      const partial: Record<string, unknown> = { ...businessHoursParams };
+      delete partial[name];
+      expect(() => buildPolicyFromTemplate('business-hours-only', partial)).toThrow(
+        `Template 'business-hours-only' missing required param: '${name}'`
+      );
+    }
+  });
+
+  it('business-hours-only rejects malformed hours, dates, days, and inverted windows', () => {
+    const bad: Array<[Record<string, unknown>, string]> = [
+      [{ ...businessHoursParams, startHourUtc: '9:00' }, 'startHourUtc must be "HH:MM" in UTC'],
+      [{ ...businessHoursParams, endHourUtc: '24:00' }, 'endHourUtc must be "HH:MM" in UTC'],
+      [{ ...businessHoursParams, startDate: '2026-13-01' }, 'startDate must be an ISO date "YYYY-MM-DD"'],
+      [{ ...businessHoursParams, activeDays: [] }, 'activeDays must be a non-empty array of day numbers'],
+      [{ ...businessHoursParams, activeDays: [0, 8] }, 'entries must be integers 1 (Mon) through 7 (Sun)'],
+      [{ ...businessHoursParams, endDate: '2026-10-01' }, 'endDate must be after startDate'],
+      [{ ...businessHoursParams, endUnixSeconds: 1790000000 }, 'endUnixSeconds must be after startUnixSeconds'],
+      [{ ...businessHoursParams, endHourUtc: '14:00' }, 'endHourUtc must be after startHourUtc'],
+      [{ ...businessHoursParams, startUnixSeconds: 0 }, 'startUnixSeconds must be a positive safe integer'],
+    ];
+    for (const [params, message] of bad) {
+      expect(() => buildPolicyFromTemplate('business-hours-only', params)).toThrow(message);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // no-new-outputs-consolidation
+  // ---------------------------------------------------------------------------
+  it('no-new-outputs-consolidation returns DERIVED_NO_NEW_OUTPUTS with expected_value true', () => {
+    const result = buildPolicyFromTemplate('no-new-outputs-consolidation', {});
+    expect(result).toMatchObject({
+      version: '1.1',
+      policy: {
+        type: 'condition',
+        conditionType: 'DERIVED_NO_NEW_OUTPUTS',
+        conditionParams: { expected_value: true },
+      },
     });
-    const andNode = (result.policy as {
-      children: Array<{ children: Array<{ conditionType: string; conditionParams: Record<string, unknown> }> }>;
-    }).children[1];
-    const destNode = andNode.children.find((c) => c.conditionType === 'OUTPUT_DEST_IS_IN_SETS');
-    expect(destNode?.conditionParams['addresses']).toEqual(addrs);
   });
 
-  it('24: treasury-vault accepts 66-char compressed pubkey as adminKeyIdentifier', () => {
-    const adminKey = '02' + 'a'.repeat(64);  // 66 chars (compressed pubkey prefix + 64)
-    const result = buildPolicyFromTemplate('treasury-vault', { adminKeyIdentifier: adminKey });
-    expect((result.policy as { operator: string }).operator).toBe('IMPLIES');
+  it('no-new-outputs-consolidation takes no parameters', () => {
+    expect(() =>
+      buildPolicyFromTemplate('no-new-outputs-consolidation', { unexpected: 1 })
+    ).toThrow('takes no parameters');
   });
+});
 
-  it('25: treasury-vault default network is signet in OUTPUT_DEST_IS_IN_SETS', () => {
-    const adminKey = 'f'.repeat(64);
-    const result = buildPolicyFromTemplate('treasury-vault', { adminKeyIdentifier: adminKey });
-    const andNode = (result.policy as {
-      children: Array<{ children: Array<{ conditionType: string; conditionParams: Record<string, unknown> }> }>;
-    }).children[1];
-    const destNode = andNode.children.find((c) => c.conditionType === 'OUTPUT_DEST_IS_IN_SETS');
-    expect(destNode?.conditionParams['network']).toBe('signet');
+/** One valid parameter set per registry template, keyed by template ID. */
+function sampleParams(templateId: string): Record<string, unknown> {
+  switch (templateId) {
+    case 'bitcoin-inheritance':
+      return { startUnixSeconds: 1800000000 };
+    case 'blacklist':
+      return { blockedAddresses: ['bc1qsamplebannedaddr00'], network: 'signet' };
+    case 'business-hours-only':
+      return { ...businessHoursParams };
+    case 'no-new-outputs-consolidation':
+      return {};
+    default:
+      throw new Error(`no sample params registered for template '${templateId}'`);
+  }
+}
+
+describe('buildPolicyFromTemplate sample params stay in sync with the registry', () => {
+  it('every template has sample params and every sample set builds', () => {
+    expect(Object.keys(POLICY_TEMPLATES).sort()).toEqual(
+      ['bitcoin-inheritance', 'blacklist', 'business-hours-only', 'no-new-outputs-consolidation']
+    );
+    for (const id of Object.keys(POLICY_TEMPLATES)) {
+      const built: POETPolicy = buildPolicyFromTemplate(id, sampleParams(id));
+      expect(built.version).toBe('1.1');
+    }
   });
 });
