@@ -24,7 +24,7 @@ import { parseNetworkId } from './contracts/network';
 /** Template parameter specification */
 export interface TemplateParam {
   name: string;
-  type: 'number' | 'string' | 'string[]' | 'boolean';
+  type: 'number' | 'number[]' | 'string' | 'string[]' | 'boolean';
   description: string;
   required: boolean;
 }
