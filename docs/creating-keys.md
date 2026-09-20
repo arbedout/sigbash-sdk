@@ -20,8 +20,8 @@ import { buildPolicyFromTemplate, POLICY_TEMPLATES } from '@sigbash/sdk';
 // List available templates:
 console.log(Object.keys(POLICY_TEMPLATES));
 
-const policy = buildPolicyFromTemplate('weekly-spending-limit', {
-  weeklyLimitSats: 500_000,
+const policy = buildPolicyFromTemplate('bitcoin-inheritance', {
+  startUnixSeconds: Math.floor(Date.now() / 1000) + 10 * 365 * 24 * 3600,
 });
 
 await client.createKey({ policy, network: 'signet', require2FA: false });
@@ -29,14 +29,18 @@ await client.createKey({ policy, network: 'signet', require2FA: false });
 
 **Built-in templates:**
 
-| Template ID | Description | Key params |
+| Template ID | Description | Key params (all required) |
 |---|---|---|
-| `weekly-spending-limit` | Max spend per rolling 7-day window | `weeklyLimitSats` |
-| `treasury-vault` | IF no admin key THEN restrict amount + destinations | `adminKeyIdentifier`, `hotWalletLimitSats?`, `allowedAddresses?`, `network?` |
-| `bitcoin-inheritance` | Funds unlock after a timestamp | `unlockTimestamp?` |
-| `blacklist` | Block specific destination addresses | `blockedAddresses`, `network?` (default `"mainnet"`) |
-| `business-hours-only` | Transactions only during Mon–Fri business hours (UTC) | `startHourUTC?` (default `"14:00"`), `endHourUTC?` (default `"22:00"`) |
+| `bitcoin-inheritance` | Funds unlock after a timestamp | `startUnixSeconds` |
+| `blacklist` | Block specific destination addresses | `blockedAddresses`, `network` |
+| `business-hours-only` | Signing restricted to an explicit daily UTC window | `activeDays`, `startHourUtc`, `endHourUtc`, `startDate`, `endDate`, `startUnixSeconds`, `endUnixSeconds` |
 | `no-new-outputs-consolidation` | All outputs must go to input addresses (UTXO consolidation) | *(none)* |
+
+Every template emits only census-sound condition forms: no spend-amount caps
+(those live in the governance workflow), no key-requirement clauses, no
+wall-clock reads — time parameters are explicit, and `buildPolicyFromTemplate`
+re-validates each built policy against the fail-closed selection gate, so a
+non-conformant build throws instead of returning.
 
 See [policy-reference.md](policy-reference.md) for the underlying condition
 types each template compiles to.
