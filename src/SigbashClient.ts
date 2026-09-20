@@ -65,6 +65,7 @@ import {
   decryptAuditEntry,
 } from './audit-log';
 import { buildPolicyFromTemplate } from './templates';
+import { MAX_BATCH_INPUTS, PsbtInputLimitError, parsePsbtInputCount } from './wallet';
 import { SigbashSocket } from './socket';
 import { getProveWorkerManager } from './prove-worker-manager';
 import {
@@ -1439,6 +1440,14 @@ export class SigbashClient {
     const psbtBase64 = options.psbtBase64 ?? options.psbtHex ?? '';
     const network = options.network ?? 'signet';
     const progressCallback = options.progressCallback ?? null;
+
+    // A session above the protocol's hard input cap can never prove, so it
+    // fails closed here before any proof work or network round trips are
+    // spent on it.
+    const psbtInputCount = parsePsbtInputCount(psbtBase64);
+    if (psbtInputCount > MAX_BATCH_INPUTS) {
+      throw new PsbtInputLimitError(psbtInputCount, MAX_BATCH_INPUTS);
+    }
 
     // Pre-flight: validate auth + TOTP on the SDK namespace before invoking WASM.
     // The server checks credentials and TOTP here so we can surface typed errors

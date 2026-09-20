@@ -269,3 +269,10 @@ export type {
   SigningApiErrorCode,
   SigningFailureClass,
 } from './contracts';
+
+// Institutional wallet helpers — canonical construction, canonical text +
+// fingerprint, TapTree derivation, and the wallet-ownership REQKEY template.
+// The contracts lane above carries the sync-contract codec; this lane carries
+// the canonical spend-identity form the proof system binds against. The two
+// share the WalletSignerKind union, exported once from contracts.
+export * from './wallet';

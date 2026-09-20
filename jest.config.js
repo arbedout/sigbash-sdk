@@ -1,17 +1,26 @@
+const ESM_TRANSFORM = [
+  'ts-jest',
+  { tsconfig: { allowJs: true, target: 'ES2020', module: 'commonjs', esModuleInterop: true } },
+];
+
 export default {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  // @noble/ed25519 ships ESM-only, so the default node_modules transform
-  // exclusion is lifted for it and ts-jest transpiles it to CommonJS. All
-  // other node_modules packages stay untransformed.
+  // @noble/ed25519, @noble/curves, and @scure/base ship ESM-only, so the
+  // default node_modules transform exclusion is lifted for them and ts-jest
+  // transpiles them to CommonJS. All other node_modules packages stay
+  // untransformed.
   transform: {
     '^.+\\.tsx?$': ['ts-jest'],
-    'node_modules/@noble/ed25519/.+\\.m?js$': [
-      'ts-jest',
-      { tsconfig: { allowJs: true, target: 'ES2020', module: 'commonjs', esModuleInterop: true } },
-    ],
+    'node_modules/@noble/ed25519/.+\\.m?js$': ESM_TRANSFORM,
+    'node_modules/@noble/curves/.+\\.m?js$': ESM_TRANSFORM,
+    'node_modules/@noble/hashes/.+\\.m?js$': ESM_TRANSFORM,
+    'node_modules/@scure/base/.+\\.m?js$': ESM_TRANSFORM,
+    'node_modules/@scure/bip32/.+\\.m?js$': ESM_TRANSFORM,
   },
-  transformIgnorePatterns: ['/node_modules/(?!@noble/ed25519/)'],
+  transformIgnorePatterns: [
+    '/node_modules/(?!@noble/ed25519/|@noble/curves/|@noble/hashes/|@scure/base/|@scure/bip32/)',
+  ],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
