@@ -59,3 +59,19 @@ export {
   walletReqkeyTemplatePayload,
 } from './reqkeyTemplate';
 export { parsePsbtInputCount } from './psbtInputCount';
+export {
+  EXECUTION_CREDENTIAL_FORMAT_VERSION,
+  EXECUTION_CREDENTIAL_HKDF_PREFIX,
+  EXECUTION_CREDENTIAL_MAGIC,
+  EXECUTION_CREDENTIAL_NETWORK,
+  EXECUTION_CREDENTIAL_NETWORK_CODE,
+  deriveWalletExecutionCredential,
+  executionCredentialAuthHash,
+  executionCredentialRegistrationMaterial,
+  parseWalletExecutionCredential,
+  serializeWalletExecutionCredential,
+  walletExecutionCredentialsEqual,
+} from './executionCredential';
+export type { ExecutionCredentialPublicMaterial, WalletExecutionCredentialV1 } from './executionCredential';
+export { ExecutionCredentialError } from './executionCredentialErrors';
+export type { ExecutionCredentialErrorCode } from './executionCredentialErrors';
