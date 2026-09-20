@@ -8,10 +8,13 @@
  * records keep random opaque IDs.
  *
  * FINGERPRINT-ORDER PIN: the fingerprint is defined over the canonical
- * descriptor TEXT with leaves in index-tuple order (the fixed canonical text
- * order), not TapLeaf-hash tree order. Tree order varies per branch/index,
- * while the text order is index-independent, so one wallet has one stable
- * fingerprint.
+ * descriptor TEXT with leaves in tree-faithful TapLeaf-hash ascending order,
+ * evaluated at the branch's reference derivation (branch, index 0). That
+ * anchor makes the text order index-independent, so one wallet keeps one
+ * stable fingerprint while the text still reproduces the index-0 output key
+ * through third-party tr() tooling. The text order is wallet identity: any
+ * change to it moves every wallet_id and is therefore a format-version
+ * change, never a bugfix.
  *
  * ORIGIN DECORATION PIN: origin metadata is PSBT/hardware interoperability
  * decoration, never spend identity — derivation consumes only the xpub. The

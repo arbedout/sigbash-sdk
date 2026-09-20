@@ -191,7 +191,7 @@ describe('cross-implementation sync fixture (pinned by the native builder tests)
 
   it('reproduces the pinned wallet fingerprint', () => {
     expect(walletFingerprintHex(fixtureWallet())).toBe(
-      'f2dad558c741b1aa3b95c4deef9189db627147304f17cd1e2607f729f78a7a57'
+      '5d447275e4978b668ccc5194489488174fb2d18a67957095d8ed777c93eaaaa3'
     );
   });
 

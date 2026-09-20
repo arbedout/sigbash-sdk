@@ -1,16 +1,23 @@
 /**
  * Canonical descriptor text view over a built institutional wallet.
  *
- * The text is a view, never an independent source. Leaf order is fixed and
- * index-independent: sortedmulti_a leaves by ascending signer-index tuple,
- * then the always-spendable recovery leaf, then the decay leaf. This same
- * ordering commits into the wallet fingerprint (in its origin-less form),
- * so changing the text order is a wallet-identity format change.
+ * The text is a view, never an independent source. Leaf order is
+ * tree-faithful: leaves appear in the raw TapLeaf-hash ascending order the
+ * deterministic tree builder produces, evaluated at the branch's reference
+ * derivation (branch, index 0), so one wallet has exactly one canonical
+ * text per branch and the text reproduces the wallet's index-0 output key
+ * through third-party tr() tooling. This same ordering commits into the
+ * wallet fingerprint (in its origin-less form), so changing the text order
+ * is a wallet-identity format change. Scripts never depend on how key
+ * expressions are rendered, so placeholder and origin modes share the
+ * order.
  */
 
-import { bytesToHex, concatBytes, utf8 } from '../contracts/encoding';
-import { WALLET_NUMS_INTERNAL_KEY_HEX } from './constants';
+import { bytesToHex, concatBytes, taggedHash, utf8 } from '../contracts/encoding';
+import { TAP_LEAF_VERSION, WALLET_NUMS_INTERNAL_KEY_HEX } from './constants';
 import { WalletDescriptorError } from './errors';
+import { decayScript, pkScript, sortedMultiAScript } from './taptree';
+import { deriveWalletChildKey, parseExtendedPublicKey } from './xpubImport';
 import type { InstitutionalWallet } from './walletBuilder';
 
 export type DescriptorBranch = 0 | 1;
@@ -127,36 +134,54 @@ export function canonicalWalletDescriptorText(
     );
   }
 
-  const leaves: { orderKey: number[]; text: string }[] = [];
+  // Tree-faithful ordering: leaf scripts come from the same construction
+  // the tree builder consumes, evaluated at the branch's reference
+  // derivation (branch, index 0), and the text presents them in raw
+  // TapLeaf-hash ascending order. Two identical leaf hashes would make the
+  // tree ambiguous, so they fail closed exactly as the builder does.
+  const walletLeafHash = (script: Uint8Array): Uint8Array =>
+    taggedHash('TapLeaf', concatBytes(new Uint8Array([TAP_LEAF_VERSION, script.length]), script));
+
+  const leaves: { leafHash: Uint8Array; text: string }[] = [];
   for (const set of wallet.allowedSignerSets) {
+    const childKeys = set.map((idx) => {
+      const { hd } = parseExtendedPublicKey(wallet.network, wallet.signers[idx].xpub, 'signer xpub');
+      return deriveWalletChildKey(hd, branch, 0).slice(1);
+    });
     const exprs = set.map((idx) =>
       walletKeyExpression(wallet, idx, branch, sigbashPlaceholder, omitOrigin)
     );
     leaves.push({
-      orderKey: [0x00, ...set],
+      leafHash: walletLeafHash(sortedMultiAScript(childKeys)),
       text: `sortedmulti_a(${exprs.length},${exprs.join(',')})`,
     });
   }
   if (wallet.recovery !== undefined) {
     const keyHex = bytesToHex(wallet.recovery.recoveryKeyXOnly);
+    const key = wallet.recovery.recoveryKeyXOnly;
     if (wallet.recovery.alwaysSpendable) {
-      leaves.push({ orderKey: [0x01, 0x00], text: `pk(${keyHex})` });
+      leaves.push({ leafHash: walletLeafHash(pkScript(key)), text: `pk(${keyHex})` });
     }
     if (wallet.recovery.decay) {
       leaves.push({
-        orderKey: [0x01, 0x01],
+        leafHash: walletLeafHash(decayScript(key, wallet.recovery.decayBlocks)),
         text: `and_v(v:older(${wallet.recovery.decayBlocks}),pk(${keyHex}))`,
       });
     }
   }
   leaves.sort((a, b) => {
-    for (let i = 0; i < Math.min(a.orderKey.length, b.orderKey.length); i++) {
-      if (a.orderKey[i] !== b.orderKey[i]) {
-        return a.orderKey[i] - b.orderKey[i];
+    for (let i = 0; i < 32; i++) {
+      if (a.leafHash[i] !== b.leafHash[i]) {
+        return a.leafHash[i] - b.leafHash[i];
       }
     }
-    return a.orderKey.length - b.orderKey.length;
+    return 0;
   });
+  for (let i = 1; i < leaves.length; i++) {
+    if (bytesToHex(leaves[i].leafHash) === bytesToHex(leaves[i - 1].leafHash)) {
+      throw new WalletDescriptorError('two leaves share a TapLeaf hash; the tree would be ambiguous');
+    }
+  }
 
   const inner =
     leaves.length === 1 ? leaves[0].text : `{${leaves.map((l) => l.text).join(',')}}`;
