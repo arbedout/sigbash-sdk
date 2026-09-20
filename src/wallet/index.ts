@@ -75,3 +75,11 @@ export {
 export type { ExecutionCredentialPublicMaterial, WalletExecutionCredentialV1 } from './executionCredential';
 export { ExecutionCredentialError } from './executionCredentialErrors';
 export type { ExecutionCredentialErrorCode } from './executionCredentialErrors';
+export {
+  ORG_PROTOCOL_KEY_HKDF_PREFIX,
+  deriveOrgProtocolApiKey,
+  deriveOrgProtocolRegistrationPrincipal,
+} from './orgProtocolKey';
+export type { OrgProtocolRegistrationPrincipalV1 } from './orgProtocolKey';
+export { OrgProtocolKeyError } from './orgProtocolKeyErrors';
+export type { OrgProtocolKeyErrorCode } from './orgProtocolKeyErrors';
