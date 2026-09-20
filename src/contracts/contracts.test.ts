@@ -152,7 +152,8 @@ describe('WalletId', () => {
     const expected = taggedHash(
       WALLET_ID_TAG,
       Uint8Array.from([
-        0x02, 0x00,
+        ...Array.from(utf8(v.network)),
+        0x00,
         ...Array.from(utf8(v.receive_descriptor)),
         0x00,
         ...Array.from(utf8(v.change_descriptor)),

@@ -5,10 +5,14 @@
  *
  *   WalletId = TaggedHash(
  *     "SIGBASH/WALLET/V1",
- *     network || 0x00 ||
+ *     network_ascii_name || 0x00 ||
  *     canonical_receive_descriptor_without_checksum ||
  *     0x00 || canonical_change_descriptor_without_checksum
  *   )
+ *
+ * The network enters the preimage as its ASCII name bytes ("signet" /
+ * "mainnet"), matching the canonical Go reference construction — not as a
+ * numeric wire code. Wire codes are reserved for binary contract encodings.
  *
  * The wallet id is used for client-side identity and encrypted-state
  * references. It is never a public sync identifier; server-facing
@@ -16,7 +20,7 @@
  */
 
 import { bytesToHex, concatBytes, hexToBytes, taggedHash, u8be, utf8 } from './encoding';
-import { encodeNetworkId, NetworkId } from './network';
+import { NetworkId } from './network';
 
 export const WALLET_ID_VERSION = 1;
 export const WALLET_ID_TAG = 'SIGBASH/WALLET/V1';
@@ -44,7 +48,7 @@ export function computeWalletId(params: {
   assertCanonicalDescriptorText(params.receiveDescriptor, 'receive');
   assertCanonicalDescriptorText(params.changeDescriptor, 'change');
   const preimage = concatBytes(
-    u8be(encodeNetworkId(params.network)),
+    utf8(params.network),
     u8be(0x00),
     utf8(params.receiveDescriptor),
     u8be(0x00),

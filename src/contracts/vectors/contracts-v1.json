@@ -36,7 +36,7 @@
     "network": "mainnet",
     "receive_descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<KEY/0/0>>))",
     "change_descriptor": "tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<KEY/1/0>>))",
-    "wallet_id_hex": "add5ae6fc3c7fe805590034263e56786ae1a6626176f1d4cafa75aad5b032ed8"
+    "wallet_id_hex": "9102096180fbba2b1cb0464c3e81f9a440509b8c60e0da148b1082b3f772700c"
   },
   "approval_commitment_v1": {
     "fields": {
