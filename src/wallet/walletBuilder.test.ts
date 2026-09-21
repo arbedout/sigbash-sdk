@@ -216,7 +216,8 @@ describe('fail-closed construction matrix', () => {
     expect(() =>
       buildInstitutionalWalletDescriptor({ ...base, signers: sig, allowedSignerSets: sets, recovery: { recoveryKeyXOnly: new Uint8Array(32), alwaysSpendable: true, decay: false, decayBlocks: 0 } })
     ).toThrow(/not a valid x-only public key/);
-    // The upper format bound itself (65535) is valid in the canonical form.
+    // The upper bound itself (65534) is valid; 0xffff is the reserved
+    // record-form null marker and can never be a decay count.
     expect(() =>
       buildInstitutionalWalletDescriptor({ ...base, signers: sig, allowedSignerSets: sets, recovery: { recoveryKeyXOnly: key, alwaysSpendable: true, decay: true, decayBlocks: WALLET_DECAY_BLOCKS_MAX } })
     ).not.toThrow();

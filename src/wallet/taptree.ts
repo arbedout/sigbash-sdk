@@ -22,6 +22,8 @@ import {
   WALLET_BRANCH_CHANGE,
   WALLET_BRANCH_RECEIVE,
   WALLET_CANDIDATES_PER_BRANCH,
+  WALLET_DECAY_BLOCKS_MAX,
+  WALLET_DECAY_BLOCKS_MIN,
   WALLET_MAX_DERIVATION_INDEX,
   WALLET_NETWORK_PARAMS,
   WALLET_NUMS_INTERNAL_KEY_HEX,
@@ -107,9 +109,20 @@ function tapTweak(internal: Uint8Array, root: Uint8Array): Uint8Array {
   return taggedHash('TapTweak', concatBytes(internal, root));
 }
 
-function scriptNumMinimal(value: number): Uint8Array {
+/**
+ * The canonical script-number push form, byte-for-byte what btcd's
+ * ScriptBuilder.AddInt64 emits: OP_0 for zero, the OP_1..OP_16 opcodes for
+ * 1..16, otherwise the minimal little-endian byte string (with the trailing
+ * zero byte the sign bit forces) behind its length prefix. Any other form
+ * would compile a different leaf script and so a different TapLeaf hash,
+ * output key, and address.
+ */
+function scriptNumPush(value: number): Uint8Array {
   if (value === 0) {
-    return new Uint8Array(0);
+    return new Uint8Array([0x00]);
+  }
+  if (value >= 1 && value <= 16) {
+    return new Uint8Array([0x50 + value]);
   }
   const out: number[] = [];
   let v = value;
@@ -120,7 +133,7 @@ function scriptNumMinimal(value: number): Uint8Array {
   if (out[out.length - 1] & 0x80) {
     out.push(0);
   }
-  return new Uint8Array(out);
+  return concatBytes(new Uint8Array([out.length]), new Uint8Array(out));
 }
 
 const OP_CHECKSIG = 0xac;
@@ -151,12 +164,15 @@ export function pkScript(key: Uint8Array): Uint8Array {
   return concatBytes(new Uint8Array([0x20]), key, new Uint8Array([OP_CHECKSIG]));
 }
 
-/** and_v(v:older(T),pk(KEY)) with minimal CScriptNum T. */
+/** and_v(v:older(T),pk(KEY)) with the canonical script-number push of T. */
 export function decayScript(key: Uint8Array, blocks: number): Uint8Array {
-  const num = scriptNumMinimal(blocks);
+  if (blocks < WALLET_DECAY_BLOCKS_MIN || blocks > WALLET_DECAY_BLOCKS_MAX) {
+    throw new WalletDescriptorError(
+      `decay block count ${blocks} outside ${WALLET_DECAY_BLOCKS_MIN}..${WALLET_DECAY_BLOCKS_MAX}`
+    );
+  }
   return concatBytes(
-    new Uint8Array([num.length]),
-    num,
+    scriptNumPush(blocks),
     new Uint8Array([OP_CHECKSEQUENCEVERIFY, OP_VERIFY]),
     new Uint8Array([0x20]),
     key,

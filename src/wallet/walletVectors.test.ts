@@ -72,6 +72,10 @@ const CASE_SETS: Record<string, number[][]> = {
     [0, 3, 4],
   ],
   'recovery-decay': [[0]],
+  'recovery-decay-1': [[0]],
+  'recovery-decay-16': [[0]],
+  'recovery-decay-17': [[0]],
+  'recovery-decay-65534': [[0]],
   'sparrow-importable': [[0]],
 };
 
@@ -233,6 +237,33 @@ describe('vector fixture integrity', () => {
     const raw = readFileSync(join(__dirname, '../contracts/vectors/wallet-descriptor-v1.json'), 'utf8');
     const doc = JSON.parse(raw);
     expect(doc.generator).toContain('wallet_vector_reference_generator.py');
-    expect(doc.cases).toHaveLength(6);
+    expect(doc.cases).toHaveLength(10);
+  });
+
+  it('the fixture pins the rejected decay block counts', () => {
+    const raw = readFileSync(join(__dirname, '../contracts/vectors/wallet-descriptor-v1.json'), 'utf8');
+    const doc = JSON.parse(raw) as { reject_cases: { name: string; decay_blocks: number }[] };
+    expect(doc.reject_cases.length).toBeGreaterThan(0);
+    for (const r of doc.reject_cases) {
+      expect(() =>
+        buildInstitutionalWalletDescriptor({
+          network: 'signet',
+          signers: [
+            {
+              kind: 'sigbash_policy_key',
+              xpub: 'tpubD6NzVbkrYhZ4Wgf68pWWfTRzdXMoepBvepfiAKtNoE7RvbAbWVfWzQxH1jbkfNk3iJ9zR65Yw6u3B2QZzpkMSTN4y8Lfm1t44HbpZX7efhZ',
+              policyKeyId: 'pk-reject',
+            },
+          ],
+          allowedSignerSets: [[0]],
+          recovery: {
+            recoveryKeyXOnly: new Uint8Array(32).fill(0xab),
+            alwaysSpendable: true,
+            decay: true,
+            decayBlocks: r.decay_blocks,
+          },
+        })
+      ).toThrow(/decay block count/);
+    }
   });
 });

@@ -6,7 +6,7 @@
  */
 
 import { bytesToHex, hexToBytes } from '../contracts/encoding';
-import { WALLET_NUMS_INTERNAL_KEY_HEX } from './constants';
+import { WALLET_DECAY_BLOCKS_MAX, WALLET_NUMS_INTERNAL_KEY_HEX } from './constants';
 import { WalletDescriptorError } from './errors';
 import { HDKey } from '@scure/bip32';
 import {
@@ -157,8 +157,17 @@ describe('script bytes', () => {
     expect(Array.from(pkScript(key))).toEqual([0x20, ...Array.from(key), 0xac]);
   });
 
-  it('the decay script is and_v(v:older(T),pk(KEY)) with a minimal CScriptNum', () => {
+  it('the decay script is and_v(v:older(T),pk(KEY)) with the canonical script-number push', () => {
     const key = hexToBytes(WALLET_NUMS_INTERNAL_KEY_HEX);
+    const csvVerify = [0xb2, 0x69, 0x20, ...Array.from(key), 0xac];
+    // 1..16 ride the OP_1..OP_16 opcodes, never a length-prefixed push.
+    expect(Array.from(decayScript(key, 1))).toEqual([0x51, ...csvVerify]);
+    expect(Array.from(decayScript(key, 16))).toEqual([0x60, ...csvVerify]);
+    // 17 is the smallest length-prefixed value.
+    expect(Array.from(decayScript(key, 17))).toEqual([0x01, 0x11, ...csvVerify]);
+    // Zero encodes as OP_0; the format floor rejects it before the script.
+    expect(() => decayScript(key, 0)).toThrow(/decay block count/);
+    expect(() => decayScript(key, WALLET_DECAY_BLOCKS_MAX + 1)).toThrow(/decay block count/);
     // 144 = 0x90 needs the trailing zero of a minimally-encoded script number.
     expect(Array.from(decayScript(key, 144))).toEqual([
       0x02, 0x90, 0x00, 0xb2, 0x69, 0x20, ...Array.from(key), 0xac,

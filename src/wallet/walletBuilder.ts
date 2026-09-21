@@ -56,7 +56,7 @@ export interface WalletRecoveryBranches {
   alwaysSpendable: boolean;
   /** and_v(v:older(T),pk(RECOVERY_KEY)) decay branch. */
   decay: boolean;
-  /** T in 1..65535; meaningful only when decay is true. */
+  /** T in 1..65534; meaningful only when decay is true. */
   decayBlocks: number;
 }
 

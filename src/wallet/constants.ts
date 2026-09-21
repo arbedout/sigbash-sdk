@@ -34,9 +34,14 @@ export const WALLET_REQKEY_TEMPLATE_PREFIX = 'sigbashwd1:';
 /** Sentinel occupying the single Sigbash signer's xpub in a REQKEY payload. */
 export const WALLET_REQKEY_PLACEHOLDER_XPUB = 'SIGBASH_XPUB';
 
-/** Decay block count T bounds (OP_CSV / BIP-68 per-output semantics). */
+/**
+ * Decay block count T bounds (OP_CSV / BIP-68 per-output semantics). The
+ * ceiling is one below the u16 encoding ceiling: 0xffff is reserved as the
+ * null marker of the record form, so a decay branch must never carry it —
+ * a wallet built with 0xffff would be unrepresentable in that form.
+ */
 export const WALLET_DECAY_BLOCKS_MIN = 1;
-export const WALLET_DECAY_BLOCKS_MAX = 65535;
+export const WALLET_DECAY_BLOCKS_MAX = 65534;
 
 /** Maximum distinct allowed signer sets (tapscript leaf count) per wallet. */
 export const WALLET_MAX_ALLOWED_SIGNER_SETS = 255;
