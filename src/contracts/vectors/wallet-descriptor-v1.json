@@ -345,7 +345,15 @@
   "reject_cases": [
     {
       "name": "recovery-decay-65535-rejected",
+      "always": true,
+      "decay": true,
       "decay_blocks": 65535
+    },
+    {
+      "name": "recovery-decay-only-rejected",
+      "always": false,
+      "decay": true,
+      "decay_blocks": 144
     }
   ]
 }

@@ -207,6 +207,12 @@ describe('fail-closed construction matrix', () => {
     expect(() =>
       buildInstitutionalWalletDescriptor({ ...base, signers: sig, allowedSignerSets: sets, recovery: { recoveryKeyXOnly: key, alwaysSpendable: false, decay: false, decayBlocks: 0 } })
     ).toThrow(/neither an always-spendable nor a decay branch/);
+    // The record form has no always-spendable flag: a recovery block implies
+    // the always-spendable branch, so a decay-only wallet is not a valid
+    // shape and would gain an extra leaf if it were.
+    expect(() =>
+      buildInstitutionalWalletDescriptor({ ...base, signers: sig, allowedSignerSets: sets, recovery: { recoveryKeyXOnly: key, alwaysSpendable: false, decay: true, decayBlocks: 144 } })
+    ).toThrow(/decay-only recovery/);
     expect(() =>
       buildInstitutionalWalletDescriptor({ ...base, signers: sig, allowedSignerSets: sets, recovery: { recoveryKeyXOnly: key, alwaysSpendable: true, decay: true, decayBlocks: WALLET_DECAY_BLOCKS_MAX + 1 } })
     ).toThrow(/decay block count/);

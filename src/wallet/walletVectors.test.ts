@@ -242,7 +242,9 @@ describe('vector fixture integrity', () => {
 
   it('the fixture pins the rejected decay block counts', () => {
     const raw = readFileSync(join(__dirname, '../contracts/vectors/wallet-descriptor-v1.json'), 'utf8');
-    const doc = JSON.parse(raw) as { reject_cases: { name: string; decay_blocks: number }[] };
+    const doc = JSON.parse(raw) as {
+      reject_cases: { name: string; always: boolean; decay: boolean; decay_blocks: number }[];
+    };
     expect(doc.reject_cases.length).toBeGreaterThan(0);
     for (const r of doc.reject_cases) {
       expect(() =>
@@ -258,12 +260,12 @@ describe('vector fixture integrity', () => {
           allowedSignerSets: [[0]],
           recovery: {
             recoveryKeyXOnly: new Uint8Array(32).fill(0xab),
-            alwaysSpendable: true,
-            decay: true,
+            alwaysSpendable: r.always,
+            decay: r.decay,
             decayBlocks: r.decay_blocks,
           },
         })
-      ).toThrow(/decay block count/);
+      ).toThrow(/decay/);
     }
   });
 });

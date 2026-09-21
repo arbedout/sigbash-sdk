@@ -128,6 +128,14 @@ function normalizeRecovery(recovery?: WalletRecoveryBranches): WalletRecoveryBra
   if (!recovery.alwaysSpendable && !recovery.decay) {
     throw new WalletDescriptorError('recovery block carries neither an always-spendable nor a decay branch');
   }
+  // A decay branch never exists without the always-spendable branch: the
+  // shared record form has no always-spendable flag, so a recovery block's
+  // presence IS the always-spendable fact and Decay alone is unrepresentable.
+  if (recovery.decay && !recovery.alwaysSpendable) {
+    throw new WalletDescriptorError(
+      'decay-only recovery is not a valid wallet shape; the record form implies the always-spendable branch from block presence'
+    );
+  }
   if (recovery.decay && (recovery.decayBlocks < WALLET_DECAY_BLOCKS_MIN || recovery.decayBlocks > WALLET_DECAY_BLOCKS_MAX)) {
     throw new WalletDescriptorError(
       `decay block count ${recovery.decayBlocks} outside ${WALLET_DECAY_BLOCKS_MIN}..${WALLET_DECAY_BLOCKS_MAX}`
