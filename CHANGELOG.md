@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`systemPolicyReqkeyTemplatePayload()`** — the single composition-ready
+  producer for the wallet-template REQKEY payload the composed system policy
+  commits. It validates the wallet's template against the committed
+  derivation range before anything can be registered.
+- `WALLET_REQKEY_TEMPLATE_PREFIX` is now exported from the contracts module
+  (byte-identical value; re-exported from the wallet namespace as before).
+
+### Changed
+
+- **The composed system policy's ownership fragment is payload-primary.**
+  `systemWalletOwnershipFragment()` and the system-policy digest now commit
+  the `sigbashwd1:` wallet-template atom with the full 256+256 derivation
+  range instead of the legacy `tr(SIGBASH_XPUB/0/*)` form, and
+  `composeEffectivePolicy()` fail-closes on any other system-atom shape —
+  including the legacy unbounded template. Institutional wallets must pass
+  the wallet-template payload; a legacy-form system clause can no longer be
+  registered.
+- **Canonicalization dedupes duplicate children only for duplicate-
+  insensitive operators (`AND`, `OR`, `NAND`, `NOR`).** For `XOR`,
+  `MAJORITY`, `THRESHOLD`, `EXACTLY`, and `AT_MOST`, child multiplicity is
+  semantic and is now preserved exactly: `THRESHOLD(2,[a,a,b])` no longer
+  collapses to `[a,b]`, and `XOR(a,a)` no longer collapses to `XOR(a)`.
+  Digests of documents that relied on the old collapse change; unaffected
+  documents keep their digests.
+- The policy selection gate requires `NOT` over exactly one condition node;
+  negation no longer propagates through multi-child operators.
+- The decay-blocks bound is 65534 (`WALLET_DECAY_BLOCKS_MAX`), aligning the
+  TS contract with the Go reference; vector fixtures regenerated in
+  lockstep.
+
+### Fixed
+
+- **Canonical script-number encoding for decay leaves.** The encoder mirrors
+  Bitcoin Core's `AddInt64` serialization (including the sign-byte case the
+  previous encoding produced incorrectly), so decay leaves hash identically
+  to the canonical Go/oracle encoding.
+
+### Removed
+
+- **`buildWallet` (and the Go builder) reject recovery-decay-only shapes.**
+  A wallet whose branches are all recovery/decay can no longer be built: the
+  record form has no always-spendable flag, so a decay branch never exists
+  without the always-spendable branch. Build with an always-spendable branch
+  alongside decay, or store the recovery material outside the wallet record.
+
 ## [0.8.3] — 2026-09-17
 
 ### Fixed
