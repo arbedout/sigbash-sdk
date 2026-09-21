@@ -28,8 +28,14 @@ export const WALLET_MAX_DERIVATION_INDEX = 255;
 export const WALLET_CANDIDATES_PER_BRANCH = WALLET_MAX_DERIVATION_INDEX + 1;
 export const WALLET_REQKEY_CANDIDATE_COUNT = 2 * WALLET_CANDIDATES_PER_BRANCH;
 
-/** Marks a descriptor_template value as a wallet-ownership REQKEY payload. */
-export const WALLET_REQKEY_TEMPLATE_PREFIX = 'sigbashwd1:';
+/**
+ * Marks a descriptor_template value as a wallet-ownership REQKEY payload.
+ * Canonical home is the system-policy contract module (composition must
+ * tell the wallet-template mode apart from the legacy descriptor form
+ * fail-closed); re-exported here so the wallet surface keeps one import
+ * site for its format constants. Byte-shared with the WASM lane.
+ */
+export { WALLET_REQKEY_TEMPLATE_PREFIX } from '../contracts/systemPolicy';
 
 /** Sentinel occupying the single Sigbash signer's xpub in a REQKEY payload. */
 export const WALLET_REQKEY_PLACEHOLDER_XPUB = 'SIGBASH_XPUB';

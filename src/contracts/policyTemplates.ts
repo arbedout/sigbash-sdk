@@ -544,7 +544,7 @@ function buildProposalExpirationFact(params: Record<string, unknown>): Governanc
 // ---------------------------------------------------------------------------
 
 const TIME_DRIFT_NOTE =
-  'Clock trust model: Moon-bounded drift gates reject proof submissions when client and Moon timestamps drift beyond fixed limits; drift gates bound clock error, and window honesty relies on the host running the honest client build (census sound-with-conditions basis).';
+  'Clock trust model: the Moon verifier checks proof-submission freshness, rejects proof submissions when client and Moon timestamps drift beyond fixed limits (at most 300 seconds of client/server clock drift in production), and verifies that the client timestamp equals the pinned proof input the in-circuit condition consumes. Drift gates bound clock error, and window honesty relies on the host running the honest client build (census sound-with-conditions basis).';
 
 const BLOCKLIST_NEGATION_NOTE =
   'Negated-form construction: the census graded the negated set family NOT SOUND at census head; this template uses the remediated in-circuit negation, which enforces at most one negated condition family per policy, never mixes positive and negated content in a family slot, and places negated membership fail-closed. The negation wraps an ANY-selector atom, so the policy requires that no output is in the banned set.';
@@ -886,7 +886,9 @@ function rejectCondition(conditionType: string, path: string): string | undefine
  * Fail-closed gate over a policy AST (raw parsed node tree). Rejects:
  * census NOT SOUND or removed conditions, disabled registry slots, REQKEY
  * outside the locked system clause, any negation outside the exact
- * remediated destination-blocklist shape, more than one negated family,
+ * remediated destination-blocklist shape (NOT over exactly one condition
+ * node — a negation never spans an operator's children, so one family
+ * slot can never carry two negated sets), more than one negated family,
  * and positive/negated mixing inside one family. Unknown condition types
  * pass through by default (advanced constructs are retained, never
  * rewritten); pass allowUnknownConditionTypes: false for the normal
@@ -896,7 +898,7 @@ export function validatePolicySelectionAst(root: unknown, options: PolicyConditi
   const allowUnknown = options.allowUnknownConditionTypes !== false;
   const scan: NegationScan = { negatedFamilies: new Set(), positiveFamilies: new Set() };
 
-  const walk = (node: unknown, path: string, negated: boolean): void => {
+  const walk = (node: unknown, path: string, negated = false): void => {
     if (!isPlainObject(node)) {
       throw new Error(`${path}: policy node must be an object`);
     }
@@ -945,16 +947,22 @@ export function validatePolicySelectionAst(root: unknown, options: PolicyConditi
         if (children.length !== 1) {
           throw new Error(`${path}: NOT takes exactly one child`);
         }
+        if (!isPlainObject(children[0]) || children[0]['type'] !== 'condition') {
+          throw new Error(`${path}: NOT wraps exactly one condition node; a negation never spans an operator's children`);
+        }
         walk(children[0], `${path}.0`, true);
         return;
       }
-      children.forEach((child, i) => walk(child, `${path}.${i}`, negated));
+      // The negation never propagates past the NOT edge: an operator under
+      // a NOT is rejected there, so one family slot can never carry two
+      // negated sets from one multi-child operator.
+      children.forEach((child, i) => walk(child, `${path}.${i}`));
       return;
     }
     throw new Error(`${path}: unknown node type`);
   };
 
-  walk(root, 'n', false);
+  walk(root, 'n');
 
   for (const family of scan.negatedFamilies) {
     if (scan.positiveFamilies.has(family)) {

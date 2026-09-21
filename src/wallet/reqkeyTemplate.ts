@@ -19,6 +19,7 @@
  */
 
 import { bytesToHex, concatBytes, hexToBytes, u16be, utf8 } from '../contracts/encoding';
+import { SYSTEM_REQKEY_DERIVATION_RANGE } from '../contracts/systemPolicy';
 import {
   WALLET_MAX_ALLOWED_SIGNER_SETS,
   WALLET_NETWORK_PARAMS,
@@ -40,6 +41,15 @@ import {
 import { parseWalletSignerOrigin, type WalletSignerOrigin } from './xpubImport';
 
 const WALLET_FORMAT_VERSION = 0x01;
+
+// The system clause commits this template over the full candidate universe;
+// the two constants are a hand-mirrored pair with the WASM gadget and must
+// never drift apart.
+if (SYSTEM_REQKEY_DERIVATION_RANGE !== WALLET_REQKEY_CANDIDATE_COUNT) {
+  throw new Error(
+    `system policy derivation range ${SYSTEM_REQKEY_DERIVATION_RANGE} does not match the wallet reqkey candidate count ${WALLET_REQKEY_CANDIDATE_COUNT}`
+  );
+}
 
 interface WalletCanonicalParts {
   network: WalletNetwork;
@@ -292,6 +302,20 @@ export function walletReqkeyTemplatePayload(wallet: InstitutionalWallet): string
     );
   }
   return WALLET_REQKEY_TEMPLATE_PREFIX + bytesToHex(raw);
+}
+
+/**
+ * Produces the wallet-ownership REQKEY template payload bound into the
+ * locked system clause: the canonical placeholder form, shape-validated
+ * against the system clause's derivation-range contract (the full
+ * candidate universe, never a subset) before any registration can commit
+ * it. This is the single composition-ready payload producer — callers
+ * must not hand the raw template form to the system-policy contract.
+ */
+export function systemPolicyReqkeyTemplatePayload(wallet: InstitutionalWallet): string {
+  const payload = walletReqkeyTemplatePayload(wallet);
+  validateWalletReqkeyTemplate(payload, SYSTEM_REQKEY_DERIVATION_RANGE);
+  return payload;
 }
 
 function decodeTemplateBytes(payload: string): Uint8Array {

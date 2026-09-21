@@ -251,6 +251,7 @@ export {
   SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE,
   SYSTEM_REQKEY_DERIVATION_RANGE,
   SYSTEM_POLICY_TAG,
+  WALLET_REQKEY_TEMPLATE_PREFIX,
   systemWalletOwnershipFragment,
   systemPolicyAst,
   composeEffectivePolicy,

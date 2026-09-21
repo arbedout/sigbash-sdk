@@ -55,6 +55,7 @@ export {
 export {
   decodeWalletReqkeyTemplate,
   encodeWalletCanonicalBytes,
+  systemPolicyReqkeyTemplatePayload,
   validateWalletReqkeyTemplate,
   walletReqkeyTemplatePayload,
 } from './reqkeyTemplate';

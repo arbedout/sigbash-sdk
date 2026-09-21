@@ -6,12 +6,14 @@
  */
 
 import { bytesToHex, hexToBytes } from '../contracts/encoding';
+import { SYSTEM_REQKEY_DERIVATION_RANGE } from '../contracts/systemPolicy';
 import { WALLET_REQKEY_TEMPLATE_PREFIX } from './constants';
 import { WalletReqkeyTemplateError } from './errors';
 import { HDKey } from '@scure/bip32';
 import {
   decodeWalletReqkeyTemplate,
   encodeWalletCanonicalBytes,
+  systemPolicyReqkeyTemplatePayload,
   validateWalletReqkeyTemplate,
   walletReqkeyTemplatePayload,
 } from './reqkeyTemplate';
@@ -165,3 +167,18 @@ function u16(bytes: number[]): number[] {
   const len = bytes.length;
   return [(len >> 8) & 0xff, len & 0xff];
 }
+
+describe('system-policy template payload', () => {
+  it('produces a payload the system clause range contract accepts', () => {
+    const payload = systemPolicyReqkeyTemplatePayload(singleSigbashWallet());
+    expect(payload.startsWith(WALLET_REQKEY_TEMPLATE_PREFIX)).toBe(true);
+    expect(() => validateWalletReqkeyTemplate(payload, SYSTEM_REQKEY_DERIVATION_RANGE)).not.toThrow();
+    expect(SYSTEM_REQKEY_DERIVATION_RANGE).toBe(512);
+  });
+
+  it('fails closed when the system clause range would commit a subset', () => {
+    const payload = systemPolicyReqkeyTemplatePayload(singleSigbashWallet());
+    expect(() => validateWalletReqkeyTemplate(payload, 256)).toThrow(/no deterministic subset meaning/);
+    expect(() => validateWalletReqkeyTemplate(payload, 1000)).toThrow(/no deterministic subset meaning/);
+  });
+});

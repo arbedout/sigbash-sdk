@@ -4,6 +4,7 @@
  * build of this script plus src/contracts:
  *
  *   npx tsc scripts/generate-policy-ast-vectors.ts src/contracts/index.ts \
+ *     src/wallet/walletBuilder.ts src/wallet/reqkeyTemplate.ts \
  *     --outDir /tmp/policyvecgen --module commonjs --moduleResolution node \
  *     --target es2020 --esModuleInterop --skipLibCheck
  *   node /tmp/policyvecgen/scripts/generate-policy-ast-vectors.js
@@ -15,6 +16,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { HDKey } from '@scure/bip32';
 import {
   bytesToHex,
   canonicalJson,
@@ -26,6 +28,8 @@ import {
   composeEffectivePolicy,
   type WalletDescriptorV1,
 } from '../src/contracts/index';
+import { buildInstitutionalWalletDescriptor } from '../src/wallet/walletBuilder';
+import { systemPolicyReqkeyTemplatePayload } from '../src/wallet/reqkeyTemplate';
 
 const DESCRIPTOR: WalletDescriptorV1 = {
   version: 1,
@@ -96,7 +100,27 @@ const USER_POLICY_UNKNOWN_DOC = {
 const USER_A = parseCanonicalPolicyAst(USER_POLICY_A_DOC);
 const USER_B = parseCanonicalPolicyAst(USER_POLICY_B_DOC);
 const USER_UNKNOWN = parseCanonicalPolicyAst(USER_POLICY_UNKNOWN_DOC);
-const SYSTEM = systemPolicyAst(DESCRIPTOR);
+
+// The system clause commits the wallet-ownership REQKEY template payload:
+// a deterministic signet wallet with one Sigbash signer whose fixed seed
+// keeps the committed atom (and its golden digests) stable across runs.
+const REQKEY_PAYLOAD = systemPolicyReqkeyTemplatePayload(
+  buildInstitutionalWalletDescriptor({
+    network: 'signet',
+    signers: [
+      {
+        kind: 'sigbash_policy_key',
+        xpub: HDKey.fromMasterSeed(new Uint8Array(32).fill(0x50), {
+          private: 0x04358394,
+          public: 0x043587cf,
+        }).publicExtendedKey,
+        policyKeyId: '11111111-2222-4333-8444-555555555555',
+      },
+    ],
+    allowedSignerSets: [[0]],
+  }),
+);
+const SYSTEM = systemPolicyAst(REQKEY_PAYLOAD);
 const EFFECTIVE = composeEffectivePolicy(SYSTEM, USER_A);
 
 const entry = (poetDoc: unknown, ast: ReturnType<typeof parseCanonicalPolicyAst>) => ({

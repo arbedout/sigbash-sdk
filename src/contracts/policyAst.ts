@@ -16,7 +16,10 @@
  *   serialization (the multiset of children is preserved exactly, so
  *   semantics cannot change);
  * - duplicate children (identical canonical serialization, including
- *   weight) are removed for those operators;
+ *   weight) are removed only for AND, OR, NAND, and NOR — for the
+ *   remaining commutative operators child multiplicity is semantic
+ *   (XOR(a,a) is not XOR(a), THRESHOLD(2,[a,a,b]) is not
+ *   THRESHOLD(2,[a,b])) and is preserved exactly;
  * - the deprecated top-level `threshold` field is reconciled into
  *   `operatorParams.k`;
  * - cosmetic `description` fields are stripped — they must never affect
@@ -59,6 +62,17 @@ const ASSOCIATIVE_OPERATORS: ReadonlySet<string> = new Set(['AND', 'OR']);
 const COMMUTATIVE_OPERATORS: ReadonlySet<string> = new Set([
   'AND', 'OR', 'XOR', 'NAND', 'NOR', 'MAJORITY',
   'THRESHOLD', 'EXACTLY', 'AT_MOST',
+]);
+
+/**
+ * The commutative operators for which duplicate children carry no extra
+ * meaning and are removed. Every other commutative operator treats child
+ * multiplicity as semantic — XOR(a,a) is false while XOR(a) is a, and a
+ * threshold over [a,a,b] is not a threshold over [a,b] — so their
+ * duplicates are preserved and only the order is canonicalized.
+ */
+const DUPLICATE_INSENSITIVE_OPERATORS: ReadonlySet<string> = new Set([
+  'AND', 'OR', 'NAND', 'NOR',
 ]);
 
 /** Operators taking exactly one child. */
@@ -218,9 +232,11 @@ function canonicalizeNode(input: unknown, path: string): PolicyNode {
         .map((child, i) => ({ child, key: nodeSortKey(child), i }))
         .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.i - b.i))
         .map((entry) => entry.child);
-      children = children.filter(
-        (child, i) => i === 0 || nodeSortKey(child) !== nodeSortKey(children[i - 1]),
-      );
+      if (DUPLICATE_INSENSITIVE_OPERATORS.has(operator)) {
+        children = children.filter(
+          (child, i) => i === 0 || nodeSortKey(child) !== nodeSortKey(children[i - 1]),
+        );
+      }
     }
     const node: OperatorNode = {
       type: 'operator',

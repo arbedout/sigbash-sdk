@@ -330,6 +330,37 @@ describe('Fail-closed selection gate', () => {
     expect(() => validatePolicySelectionAst(and(allowlist.ast.root, blocklist.ast.root))).toThrow(/mixes positive and negated/);
   });
 
+  it('requires NOT to wrap exactly one condition node', () => {
+    // NOT over a multi-child operator would carry two negated sets under
+    // one family slot while the declared shape is one negated atom.
+    expect(() =>
+      validatePolicySelectionAst(
+        not({ type: 'operator', operator: 'OR', children: [allowlist.ast.root, blocklist.ast.root] }),
+      ),
+    ).toThrow(/NOT wraps exactly one condition node/);
+    expect(() =>
+      validatePolicySelectionAst(
+        not(not(condition('OUTPUT_DEST_IS_IN_SETS', { selector: 'ANY', addresses: ['tb1qexamplebannedaddress0000000000000000000cc'], network: 'signet' }))),
+      ),
+    ).toThrow(/NOT wraps exactly one condition node/);
+    expect(() =>
+      validatePolicySelectionAst(
+        not({ type: 'operator', operator: 'AND', children: [blocklist.ast.root] }),
+      ),
+    ).toThrow(/NOT wraps exactly one condition node/);
+    // The remediated blocklist shape stays the one accepted negation.
+    expect(() => validatePolicySelectionAst(blocklist.ast.root)).not.toThrow();
+  });
+
+  it('names the Moon freshness, 300-second production drift, and pinned-input checks in the time template', () => {
+    const timeWindow = POLICY_TEMPLATES.find((template) => template.templateId === 'time-window');
+    expect(timeWindow).toBeDefined();
+    const notes = timeWindow!.notes.join(' ');
+    expect(notes).toContain('freshness');
+    expect(notes).toContain('300 seconds');
+    expect(notes).toContain('pinned proof input');
+  });
+
   it('rejects census NOT SOUND conditions, removed conditions, and disabled slots', () => {
     expect(() => validatePolicySelectionAst(condition('OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT', {}))).toThrow(/not sound/);
     expect(() => validatePolicySelectionAst(condition('INPUT_COMMITTED_DATA_VERIFY', {}))).toThrow(/not sound/);

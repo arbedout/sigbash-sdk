@@ -10,6 +10,7 @@ import {
   ContractVersionError,
   SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE,
   SYSTEM_REQKEY_DERIVATION_RANGE,
+  WALLET_REQKEY_TEMPLATE_PREFIX,
   composeEffectivePolicy,
   canonicalPolicyAstFromHex,
   canonicalJson,
@@ -32,25 +33,28 @@ import {
   EVENT_HEADER_CONTRACT_ID,
   RECOVERY_ENVELOPE_CONTRACT_ID,
   type CanonicalPolicyAstV1,
-  type WalletDescriptorV1,
 } from './index';
+import { HDKey } from '@scure/bip32';
+import { buildInstitutionalWalletDescriptor } from '../wallet/walletBuilder';
+import { systemPolicyReqkeyTemplatePayload, validateWalletReqkeyTemplate } from '../wallet/reqkeyTemplate';
 import vectors from './vectors/policy-ast-v1.json';
 
-const DESCRIPTOR: WalletDescriptorV1 = {
-  version: 1,
-  network: 'signet',
-  walletMode: 'sigbash_native',
-  signers: [
-    {
-      kind: 'sigbash_policy_key',
-      xpub: 'xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB',
-      policyKeyId: '11111111-2222-4333-8444-555555555555',
-    },
-  ],
-  allowedSignerSets: [{ signerIndexes: [0] }],
-  receiveDescriptor: 'tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<SIGBASH_XPUB/0/0>>))',
-  changeDescriptor: 'tr(50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0,sortedmulti_a(1,<<SIGBASH_XPUB/1/0>>))',
-};
+const SIGNET_HD_VERSIONS = { private: 0x04358394, public: 0x043587cf };
+
+/**
+ * Deterministic wallet-ownership REQKEY template payload for the system
+ * clause: the same fixed seed always yields the same network-correct
+ * Sigbash xpub, so the committed atom (and its golden vectors) is stable.
+ */
+function walletReqkeyPayload(): string {
+  const xpub = HDKey.fromMasterSeed(new Uint8Array(32).fill(0x50), SIGNET_HD_VERSIONS).publicExtendedKey;
+  const wallet = buildInstitutionalWalletDescriptor({
+    network: 'signet',
+    signers: [{ kind: 'sigbash_policy_key', xpub, policyKeyId: '11111111-2222-4333-8444-555555555555' }],
+    allowedSignerSets: [[0]],
+  });
+  return systemPolicyReqkeyTemplatePayload(wallet);
+}
 
 function condition(conditionType: string, conditionParams: Record<string, unknown> = {}): Record<string, unknown> {
   return { type: 'condition', conditionType, conditionParams };
@@ -233,6 +237,72 @@ describe('Canonicalization determinism', () => {
   });
 });
 
+describe('Multiplicity-semantic commutative operators', () => {
+  it('preserves duplicate children for XOR, where multiplicity is the semantics', () => {
+    const doubled = parseCanonicalPolicyAst({
+      version: '1.1',
+      policy: { type: 'operator', operator: 'XOR', children: [condition('A'), condition('A')] },
+    });
+    const single = parseCanonicalPolicyAst({
+      version: '1.1',
+      policy: { type: 'operator', operator: 'XOR', children: [condition('A')] },
+    });
+    expect((doubled.root as { children: unknown[] }).children).toHaveLength(2);
+    expect(policyAstDigestHex(doubled)).not.toBe(policyAstDigestHex(single));
+  });
+
+  it('preserves duplicate children for THRESHOLD, EXACTLY, AT_MOST, and MAJORITY', () => {
+    for (const operator of ['THRESHOLD', 'EXACTLY', 'AT_MOST', 'MAJORITY'] as const) {
+      const params = operator === 'THRESHOLD' || operator === 'EXACTLY' ? { k: 2 } : {};
+      const doubled = parseCanonicalPolicyAst({
+        version: '1.1',
+        policy: {
+          type: 'operator',
+          operator,
+          ...(Object.keys(params).length > 0 ? { operatorParams: params } : {}),
+          children: [condition('A'), condition('A'), condition('B')],
+        },
+      });
+      const deduped = parseCanonicalPolicyAst({
+        version: '1.1',
+        policy: {
+          type: 'operator',
+          operator,
+          ...(Object.keys(params).length > 0 ? { operatorParams: params } : {}),
+          children: [condition('A'), condition('B')],
+        },
+      });
+      expect(`${operator}: ${(doubled.root as { children: unknown[] }).children.length}`).toBe(`${operator}: 3`);
+      expect(policyAstDigestHex(doubled)).not.toBe(policyAstDigestHex(deduped));
+    }
+  });
+
+  it('still removes duplicate children for AND, OR, NAND, and NOR', () => {
+    for (const operator of ['AND', 'OR', 'NAND', 'NOR'] as const) {
+      const ast = parseCanonicalPolicyAst({
+        version: '1.1',
+        policy: { type: 'operator', operator, children: [condition('A'), condition('A')] },
+      });
+      expect(`${operator}: ${(ast.root as { children: unknown[] }).children.length}`).toBe(`${operator}: 1`);
+    }
+  });
+
+  it('is idempotent when child multiplicity is preserved', () => {
+    const ast = parseCanonicalPolicyAst({
+      version: '1.1',
+      policy: {
+        type: 'operator',
+        operator: 'THRESHOLD',
+        operatorParams: { k: 2 },
+        children: [condition('A'), condition('A'), condition('B')],
+      },
+    });
+    const text = canonicalJson(ast.root);
+    const reparsed = parseCanonicalPolicyAst({ version: '1.1', policy: JSON.parse(text) });
+    expect(encodeCanonicalPolicyAstV1(reparsed)).toEqual(encodeCanonicalPolicyAstV1(ast));
+  });
+});
+
 describe('Canonical binary serialization round trip', () => {
   it('round-trips a mixed policy losslessly, including per-node weights', () => {
     const ast = parseCanonicalPolicyAst({
@@ -324,35 +394,50 @@ describe('Canonical policy digests', () => {
 });
 
 describe('Locked system policy', () => {
-  it('builds the frozen descriptor-mode REQKEY clause', () => {
-    const fragment = systemWalletOwnershipFragment(DESCRIPTOR);
+  it('builds the frozen wallet-template REQKEY clause over the full derivation universe', () => {
+    const payload = walletReqkeyPayload();
+    const fragment = systemWalletOwnershipFragment(payload);
     expect(fragment).toEqual({
       type: 'condition',
       conditionType: 'REQKEY',
       conditionParams: {
         use_descriptor: true,
-        descriptor_template: SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE,
+        descriptor_template: payload,
         derivation_range: SYSTEM_REQKEY_DERIVATION_RANGE,
       },
     });
     expect(Object.isFrozen(fragment)).toBe(true);
+    expect(payload.startsWith(WALLET_REQKEY_TEMPLATE_PREFIX)).toBe(true);
     expect(SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE).toBe('tr(SIGBASH_XPUB/0/*)');
     expect(SYSTEM_REQKEY_DERIVATION_RANGE).toBe(512);
   });
 
-  it('rejects descriptors without the SIGBASH_XPUB placeholder or with a wrong version', () => {
-    expect(() =>
-      systemWalletOwnershipFragment({ ...DESCRIPTOR, receiveDescriptor: 'tr(abc)' }),
-    ).toThrow(/SIGBASH_XPUB/);
-    expect(() => systemWalletOwnershipFragment({ ...DESCRIPTOR, version: 2 as typeof DESCRIPTOR.version })).toThrow(
-      ContractVersionError,
+  it('rejects fragment inputs that are not the wallet-ownership template payload', () => {
+    expect(() => systemWalletOwnershipFragment('')).toThrow(/required/);
+    expect(() => systemWalletOwnershipFragment(SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE)).toThrow(
+      /wallet-ownership REQKEY template payload/,
+    );
+    expect(() => systemWalletOwnershipFragment('sigbashwd1:zz')).toThrow(/must be hex/);
+    expect(() => systemWalletOwnershipFragment('not-a-template')).toThrow(
+      /wallet-ownership REQKEY template payload/,
     );
   });
 
+  it('binds the template to the full receive-then-change candidate universe, never a subset', () => {
+    const payload = walletReqkeyPayload();
+    // The wallet-template mode commits receive 0..255 then change 0..255 —
+    // the 512-candidate universe the depth-9 gadget holds. The legacy form
+    // would instead commit one unbounded receive branch: change indices
+    // would fail membership and receive indices beyond the wallet universe
+    // would become provable.
+    expect(() => validateWalletReqkeyTemplate(payload, SYSTEM_REQKEY_DERIVATION_RANGE)).not.toThrow();
+    expect(() => validateWalletReqkeyTemplate(payload, 256)).toThrow(/no deterministic subset meaning/);
+  });
+
   it('composes AND(system, user) and matches the system and effective vectors', () => {
-    const system = systemPolicyAst(DESCRIPTOR);
+    const system = systemPolicyAst(walletReqkeyPayload());
     expect(bytesToHex(encodeCanonicalPolicyAstV1(system))).toBe(vectors.system_policy.encoding_hex);
-    expect(systemPolicyDigestHex(DESCRIPTOR)).toBe(vectors.system_policy.digest_hex);
+    expect(systemPolicyDigestHex(walletReqkeyPayload())).toBe(vectors.system_policy.digest_hex);
 
     const user = parseCanonicalPolicyAst(vectors.user_policy_a.poet_json as string);
     const effective = composeEffectivePolicy(system, user);
@@ -361,7 +446,7 @@ describe('Locked system policy', () => {
   });
 
   it('keeps the system clause present under every composition path', () => {
-    const system = systemPolicyAst(DESCRIPTOR);
+    const system = systemPolicyAst(walletReqkeyPayload());
     const user = parseCanonicalPolicyAst({
       version: '1.1',
       policy: { type: 'operator', operator: 'OR', children: [condition('A'), condition('B')] },
@@ -369,11 +454,60 @@ describe('Locked system policy', () => {
     const effective = composeEffectivePolicy(system, user);
     const text = canonicalJson(effective.root);
     expect(text).toContain('"conditionType":"REQKEY"');
-    expect(text).toContain(SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE);
+    expect(text).toContain(WALLET_REQKEY_TEMPLATE_PREFIX);
+  });
+
+  it('rejects composition of a system clause in the legacy unbounded descriptor form', () => {
+    const user = parseCanonicalPolicyAst({ version: '1.1', policy: condition('A') });
+    const legacyAtom = canonicalizePolicyRoot({
+      type: 'condition',
+      conditionType: 'REQKEY',
+      conditionParams: {
+        use_descriptor: true,
+        descriptor_template: SYSTEM_REQKEY_DESCRIPTOR_TEMPLATE,
+        derivation_range: SYSTEM_REQKEY_DERIVATION_RANGE,
+      },
+    });
+    expect(() => composeEffectivePolicy(legacyAtom, user)).toThrow(/legacy descriptor form/);
+  });
+
+  it('rejects a system atom that is not the sole unconditional REQKEY atom', () => {
+    const user = parseCanonicalPolicyAst({ version: '1.1', policy: condition('A') });
+    const weldedAtom = canonicalizePolicyRoot({
+      type: 'operator',
+      operator: 'AND',
+      children: [
+        {
+          type: 'condition',
+          conditionType: 'REQKEY',
+          conditionParams: {
+            use_descriptor: true,
+            descriptor_template: walletReqkeyPayload(),
+            derivation_range: SYSTEM_REQKEY_DERIVATION_RANGE,
+          },
+        },
+        condition('A'),
+      ],
+    });
+    expect(() => composeEffectivePolicy(weldedAtom, user)).toThrow(/alone and unconditional/);
+  });
+
+  it('rejects a wallet-template atom whose derivation range commits another domain', () => {
+    const user = parseCanonicalPolicyAst({ version: '1.1', policy: condition('A') });
+    const foreignRangeAtom = canonicalizePolicyRoot({
+      type: 'condition',
+      conditionType: 'REQKEY',
+      conditionParams: {
+        use_descriptor: true,
+        descriptor_template: walletReqkeyPayload(),
+        derivation_range: 1000,
+      },
+    });
+    expect(() => composeEffectivePolicy(foreignRangeAtom, user)).toThrow(/no other derivation range/);
   });
 
   it('rejects user policies that try to carry their own REQKEY clause', () => {
-    const system = systemPolicyAst(DESCRIPTOR);
+    const system = systemPolicyAst(walletReqkeyPayload());
     const hostile = parseCanonicalPolicyAst({
       version: '1.1',
       policy: {
@@ -389,7 +523,7 @@ describe('Locked system policy', () => {
   });
 
   it('freezes the composed AST against mutation', () => {
-    const system = systemPolicyAst(DESCRIPTOR);
+    const system = systemPolicyAst(walletReqkeyPayload());
     const user = parseCanonicalPolicyAst({ version: '1.1', policy: condition('A') });
     const effective = composeEffectivePolicy(system, user);
     expect(Object.isFrozen(effective)).toBe(true);
