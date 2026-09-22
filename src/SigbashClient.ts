@@ -1114,6 +1114,13 @@ export class SigbashClient {
     };
 
     if (aggregateResult.error) {
+      // The WASM boundary labels its own failure phases: policy-setup chain
+      // errors surface as "policy setup failed: ...", key-aggregation errors
+      // carry their own wording. Preserve that distinction instead of
+      // wrapping every failure under one aggregation label.
+      if (aggregateResult.error.startsWith('policy setup failed')) {
+        throw new SigbashSDKError(aggregateResult.error, 'POLICY_SETUP_FAILED');
+      }
       throw new SigbashSDKError(
         `Key aggregation failed: ${aggregateResult.error}`,
         'KEY_AGG_FAILED'

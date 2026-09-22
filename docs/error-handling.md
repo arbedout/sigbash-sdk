@@ -65,6 +65,7 @@ Grouped by lifecycle phase. Every entry below is a subclass of `SigbashSDKError`
 | `KeyIndexExistsError` (`KEY_INDEX_EXISTS`) | Index already registered for this credential; use `nextAvailableIndex` |
 | `PolicyCompileError` (`POLICY_COMPILE_FAILED`) | POET policy JSON rejected by the WASM compiler |
 | `KEY_GEN_FAILED` | WASM key generation returned an error |
+| `POLICY_SETUP_FAILED` | Policy setup chain failed inside WASM (path-leaf rebuild, registration commitments); the message carries the setup cause verbatim |
 | `KEY_AGG_FAILED` | MuSig2 key aggregation failed |
 | `AMBIGUOUS_POLICY` | Both `policy` and `policyJson` were supplied |
 | `MISSING_POLICY` | Neither `policy` nor `policyJson` was supplied |
