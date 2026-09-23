@@ -43,7 +43,10 @@ export interface ArkadeContext {
 
 // Ark-proprietary VtxoTaprootTree PSBT unknown field key: 0xDE + "taptree".
 // Present on input[1+] of every Ark register-intent PSBT; never on spending PSBTs.
-const ARK_TAPTREE_KEY = Buffer.from([0xde, 0x74, 0x61, 0x70, 0x74, 0x72, 0x65, 0x65]);
+// Plain bytes, not Buffer: this evaluates at module load, and the SDK ships to
+// browsers where no Buffer global exists — a Buffer here would reject the whole
+// module graph the moment a consumer imports the SDK root.
+const ARK_TAPTREE_KEY = new Uint8Array([0xde, 0x74, 0x61, 0x70, 0x74, 0x72, 0x65, 0x65]);
 
 export class SigbashArkadeSigningError extends Error {
   /**
