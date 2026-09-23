@@ -1944,8 +1944,9 @@ export class SigbashClient {
 
   /**
    * Overwrite the in-memory private key with random bytes, clear secret string
-   * references (userSecretKey, apiKey, userKey), and mark this instance as
-   * disposed. Call this when the SigbashClient is no longer needed.
+   * references (userSecretKey, apiKey, userKey), disconnect all Socket.IO
+   * connections, and mark this instance as disposed. Call this when the
+   * SigbashClient is no longer needed.
    *
    * This is best-effort: JS strings are immutable, so prior copies made
    * during signing (e.g. JSON payloads passed into WASM) are not zeroed and
@@ -1954,6 +1955,10 @@ export class SigbashClient {
    */
   dispose(): void {
     if (this.#disposed) return;
+    // Release the socket connections first: an open Socket.IO connection and
+    // its keep-alive timers hold the event loop open, which would otherwise
+    // keep short-lived processes alive after the client is no longer needed.
+    this.disconnect();
     crypto.getRandomValues(this.#musig2PrivateKey);
     // Overwrite string secret references — strings can't be zeroed in JS but
     // removing the reference makes the original value eligible for GC sooner.

@@ -59,16 +59,30 @@ function createUpdateableKeyInChildProcess(): {
         serverUrl: ${JSON.stringify(SERVER_URL)},
         apiKey: creds.apiKey, userKey: creds.userKey, userSecretKey: creds.userSecretKey,
       });
-      const key = await client.createKey({ policy: ${JSON.stringify(minimalPolicy)}, network: 'signet', require2FA: false, updateable: true });
+      // Persisted credentials (generateCredentials reuses .env) may already
+      // hold a registration at index 0 from a previous run — retry on the
+      // next available index instead of failing the leg.
+      let key;
+      try {
+        key = await client.createKey({ policy: ${JSON.stringify(minimalPolicy)}, network: 'signet', require2FA: false, updateable: true });
+      } catch (err) {
+        if (!err || typeof err.nextAvailableIndex !== 'number') throw err;
+        key = await client.createKey({ policy: ${JSON.stringify(minimalPolicy)}, network: 'signet', require2FA: false, updateable: true, keyIndex: err.nextAvailableIndex });
+      }
+      client.dispose();
+      // Leave explicitly: anything left holding the event loop open would
+      // block spawnSync on the parent side forever.
       process.stdout.write(JSON.stringify({
         apiKey: creds.apiKey, userKey: creds.userKey, userSecretKey: creds.userSecretKey,
         keyId: key.keyId, bip328Xpub: key.bip328Xpub, policyRoot: key.policyRoot,
-      }));
+      }), () => process.exit(0));
     })().catch(e => { console.error(e); process.exit(1); });
   `;
   const res = spawnSync('node', ['-e', script], { encoding: 'utf8' });
   if (res.status !== 0) throw new Error(`create leg failed: ${res.stderr}`);
-  return JSON.parse(res.stdout);
+  // SDK/loader log lines share the child's stdout; the result payload is the
+  // last line written.
+  return JSON.parse(res.stdout.trim().split('\n').pop()!);
 }
 
 const liveReady = !!SERVER_URL && !!WASM_LOAD_URL;
@@ -95,13 +109,18 @@ beforeAll(async () => {
       serverUrl: SERVER_URL!,
       apiKey: created.apiKey, userKey: created.userKey, userSecretKey: created.userSecretKey,
     });
-    const after = await client.getKey(created.keyId);
-    await client.updatePolicy(created.keyId, JSON.stringify(minimalPolicy));
-    const updated = await client.getKey(created.keyId);
-    expect(updated.bip328Xpub).toBe(created.bip328Xpub);
-    expect(updated.policyRoot).toBeDefined();
-    expect(updated.policyUpdateCount ?? 1).toBe((after.policyUpdateCount ?? 0) + 1);
-  });
+    try {
+      const after = await client.getKey(created.keyId);
+      await client.updatePolicy(created.keyId, JSON.stringify(minimalPolicy));
+      const updated = await client.getKey(created.keyId);
+      expect(updated.bip328Xpub).toBe(created.bip328Xpub);
+      expect(updated.policyRoot).toBeDefined();
+      expect(updated.policyUpdateCount ?? 1).toBe((after.policyUpdateCount ?? 0) + 1);
+    } finally {
+      // Release the socket connections so jest can exit after the run.
+      client.dispose();
+    }
+  }, 120_000);
 });
 
 // ---------------------------------------------------------------------------
