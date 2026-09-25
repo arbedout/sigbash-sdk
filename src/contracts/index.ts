@@ -338,6 +338,12 @@ export type {
   ManagedOrgRelationshipViewV1,
 } from './managedOrg';
 
+export { MEMBER_DIRECTORY_VIEW_VERSION } from './memberDirectory';
+export type {
+  OrgMemberEntryV1,
+  OrgMemberDirectoryViewV1,
+} from './memberDirectory';
+
 export {
   CHAIN_ENDPOINT_CONFIG_VERSION,
   BROADCAST_VARIANT_VERSION,
