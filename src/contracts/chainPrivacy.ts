@@ -26,7 +26,7 @@
  * than being restated elsewhere — one canonical definition per contract.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 
 export const CHAIN_ENDPOINT_CONFIG_VERSION = 1;
 export const BROADCAST_VARIANT_VERSION = 1;
@@ -42,8 +42,8 @@ export const CHAIN_ENDPOINT_SCOPE_CODES = {
   org: 0x01,
 } as const satisfies Record<ChainEndpointScope, number>;
 
-const CODE_TO_ENDPOINT_SCOPE: Record<number, ChainEndpointScope> = Object.fromEntries(
-  Object.entries(CHAIN_ENDPOINT_SCOPE_CODES).map(([scope, code]) => [code, scope as ChainEndpointScope]),
+const CODE_TO_ENDPOINT_SCOPE: Record<number, ChainEndpointScope> = /*#__PURE__*/ invertCodeMap(
+  CHAIN_ENDPOINT_SCOPE_CODES,
 );
 
 /**
@@ -71,8 +71,8 @@ export const BROADCAST_VARIANT_CODES = {
   download_self_broadcast: 0x03,
 } as const satisfies Record<BroadcastVariant, number>;
 
-const CODE_TO_BROADCAST_VARIANT: Record<number, BroadcastVariant> = Object.fromEntries(
-  Object.entries(BROADCAST_VARIANT_CODES).map(([variant, code]) => [code, variant as BroadcastVariant]),
+const CODE_TO_BROADCAST_VARIANT: Record<number, BroadcastVariant> = /*#__PURE__*/ invertCodeMap(
+  BROADCAST_VARIANT_CODES,
 );
 
 /**

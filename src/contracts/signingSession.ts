@@ -21,7 +21,7 @@
  * than being restated elsewhere — one canonical definition per contract.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 
 export const SIGNING_SESSION_VERSION = 1;
 export const SIGNING_SESSION_STATE_VERSION = 1;
@@ -38,8 +38,8 @@ export const SIGNING_SESSION_STATE_CODES = {
   abandoned: 0x03,
 } as const satisfies Record<SigningSessionState, number>;
 
-const CODE_TO_SESSION_STATE: Record<number, SigningSessionState> = Object.fromEntries(
-  Object.entries(SIGNING_SESSION_STATE_CODES).map(([state, code]) => [code, state as SigningSessionState]),
+const CODE_TO_SESSION_STATE: Record<number, SigningSessionState> = /*#__PURE__*/ invertCodeMap(
+  SIGNING_SESSION_STATE_CODES,
 );
 
 /**

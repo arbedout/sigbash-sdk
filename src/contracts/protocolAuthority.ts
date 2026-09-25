@@ -32,7 +32,7 @@
  * than being restated elsewhere — one canonical definition per contract.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 
 export const PROTOCOL_AUTHORITY_VERSION = 1;
 export const PROTOCOL_AUTHORITY_STATUS_VERSION = 1;
@@ -50,8 +50,8 @@ export const PROTOCOL_AUTHORITY_STATUS_CODES = {
   retired: 0x03,
 } as const satisfies Record<ProtocolAuthorityStatus, number>;
 
-const CODE_TO_AUTHORITY_STATUS: Record<number, ProtocolAuthorityStatus> = Object.fromEntries(
-  Object.entries(PROTOCOL_AUTHORITY_STATUS_CODES).map(([status, code]) => [code, status as ProtocolAuthorityStatus]),
+const CODE_TO_AUTHORITY_STATUS: Record<number, ProtocolAuthorityStatus> = /*#__PURE__*/ invertCodeMap(
+  PROTOCOL_AUTHORITY_STATUS_CODES,
 );
 
 /** The authority state view an authorized client observes for one org. */

@@ -47,6 +47,7 @@ import {
   Decoder,
   expectExhausted,
   hexToBytes,
+  invertCodeMap,
   lengthDelimited,
   readContractHeader,
   readLengthDelimited,
@@ -90,8 +91,8 @@ const OPERATOR_CODES: Record<OperatorType, number> = {
   XOR: 0x0e,
 };
 
-const CODE_TO_OPERATOR: Record<number, OperatorType> = Object.fromEntries(
-  Object.entries(OPERATOR_CODES).map(([op, code]) => [code, op as OperatorType]),
+const CODE_TO_OPERATOR: Record<number, OperatorType> = /*#__PURE__*/ invertCodeMap(
+  OPERATOR_CODES,
 );
 
 const VALUE_TAG_STRING = 0x01;

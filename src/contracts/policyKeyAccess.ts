@@ -29,7 +29,7 @@
  * than being restated elsewhere — one canonical definition per contract.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 
 export const POLICY_KEY_ACCESS_VERSION = 1;
 export const POLICY_KEY_ACCESS_STATUS_VERSION = 1;
@@ -45,8 +45,8 @@ export const POLICY_KEY_ACCESS_STATUS_CODES = {
   revoked: 0x02,
 } as const satisfies Record<PolicyKeyAccessStatus, number>;
 
-const CODE_TO_ACCESS_STATUS: Record<number, PolicyKeyAccessStatus> = Object.fromEntries(
-  Object.entries(POLICY_KEY_ACCESS_STATUS_CODES).map(([status, code]) => [code, status as PolicyKeyAccessStatus]),
+const CODE_TO_ACCESS_STATUS: Record<number, PolicyKeyAccessStatus> = /*#__PURE__*/ invertCodeMap(
+  POLICY_KEY_ACCESS_STATUS_CODES,
 );
 
 /** Grant payload: installs an active access row for one principal. */

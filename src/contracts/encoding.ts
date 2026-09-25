@@ -89,6 +89,20 @@ export function taggedHash(tag: string, msg: Uint8Array): Uint8Array {
   return sha256(concatBytes(tagHash, tagHash, msg));
 }
 
+/**
+ * Derive a decode-side reverse lookup from its forward wire-code map. The
+ * derivation is annotated pure at every call site so a contract whose codec
+ * no consumer references tree-shakes out of consumer bundles instead of
+ * surviving as dead module-scope state.
+ */
+export function invertCodeMap<K extends string, V extends number>(
+  codes: Record<K, V>,
+): Record<number, K> {
+  return Object.fromEntries(
+    Object.entries(codes).map(([name, code]) => [code, name]),
+  ) as Record<number, K>;
+}
+
 export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }

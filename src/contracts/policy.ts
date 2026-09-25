@@ -10,7 +10,7 @@
  * migration rather than in-place mutation.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 
 export const POLICY_VERSION_ID_VERSION = 1;
 export const POLICY_ENFORCEMENT_CLASS_VERSION = 1;
@@ -57,8 +57,8 @@ export const POLICY_VERSION_STATE_CODES = {
   SUPERSEDED: 0x0b,
 } as const satisfies Record<PolicyVersionState, number>;
 
-const CODE_TO_POLICY_VERSION_STATE: Record<number, PolicyVersionState> = Object.fromEntries(
-  Object.entries(POLICY_VERSION_STATE_CODES).map(([state, code]) => [code, state as PolicyVersionState]),
+const CODE_TO_POLICY_VERSION_STATE: Record<number, PolicyVersionState> = /*#__PURE__*/ invertCodeMap(
+  POLICY_VERSION_STATE_CODES,
 );
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

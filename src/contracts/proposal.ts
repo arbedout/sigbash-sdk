@@ -12,7 +12,7 @@
  * the id formats are versioned here.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 
 export const PROPOSAL_ID_VERSION = 1;
 export const SIGNING_ATTEMPT_ID_VERSION = 1;
@@ -57,8 +57,8 @@ export const TRANSACTION_PROPOSAL_STATE_CODES = {
   CONFIRMED: 0x0e,
 } as const satisfies Record<TransactionProposalState, number>;
 
-const CODE_TO_PROPOSAL_STATE: Record<number, TransactionProposalState> = Object.fromEntries(
-  Object.entries(TRANSACTION_PROPOSAL_STATE_CODES).map(([state, code]) => [code, state as TransactionProposalState]),
+const CODE_TO_PROPOSAL_STATE: Record<number, TransactionProposalState> = /*#__PURE__*/ invertCodeMap(
+  TRANSACTION_PROPOSAL_STATE_CODES,
 );
 
 export type SigningAttemptState =
@@ -78,8 +78,8 @@ export const SIGNING_ATTEMPT_STATE_CODES = {
   TERMINAL_FAILED: 0x06,
 } as const satisfies Record<SigningAttemptState, number>;
 
-const CODE_TO_ATTEMPT_STATE: Record<number, SigningAttemptState> = Object.fromEntries(
-  Object.entries(SIGNING_ATTEMPT_STATE_CODES).map(([state, code]) => [code, state as SigningAttemptState]),
+const CODE_TO_ATTEMPT_STATE: Record<number, SigningAttemptState> = /*#__PURE__*/ invertCodeMap(
+  SIGNING_ATTEMPT_STATE_CODES,
 );
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

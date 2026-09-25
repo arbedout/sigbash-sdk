@@ -20,7 +20,7 @@
  * than being restated elsewhere — one canonical definition per contract.
  */
 
-import { ContractVersionError } from './encoding';
+import { ContractVersionError, invertCodeMap } from './encoding';
 import type { PerPolicyKeySessionDescriptorV1 } from './signingSession';
 
 export const SIGNER_PROVISIONING_VERSION = 1;
@@ -47,8 +47,8 @@ export const SIGNER_PROVISIONING_STATE_CODES = {
   EXPIRED: 0x06,
 } as const satisfies Record<SignerProvisioningState, number>;
 
-const CODE_TO_PROVISIONING_STATE: Record<number, SignerProvisioningState> = Object.fromEntries(
-  Object.entries(SIGNER_PROVISIONING_STATE_CODES).map(([state, code]) => [code, state as SignerProvisioningState]),
+const CODE_TO_PROVISIONING_STATE: Record<number, SignerProvisioningState> = /*#__PURE__*/ invertCodeMap(
+  SIGNER_PROVISIONING_STATE_CODES,
 );
 
 /**
