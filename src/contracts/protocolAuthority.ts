@@ -77,6 +77,12 @@ export interface ProtocolAuthorityRotationRequestV1 {
  * generation and expected old policy root make the swap compare-and-swap;
  * the immutable client-key commitments are validated unchanged, so a
  * policy update never touches Bitcoin identity.
+ *
+ * The authority's proof of possession is not a body field: it rides the
+ * `X-Sigbash-Sig` request header (the protocol plane's PoP surface, signed
+ * by the authority's registered Ed25519 key over method, path, and body
+ * digest), so the signed transcript covers this body without the proof
+ * being part of it.
  */
 export interface AtomicPolicyMutationV1 {
   readonly policy_key_id: string;
@@ -86,7 +92,6 @@ export interface AtomicPolicyMutationV1 {
   readonly new_encrypted_kmc: string;
   readonly compiled_policy_digest: string;
   readonly idempotency_key: string;
-  readonly protocol_authority_proof: string;
 }
 
 export function encodeProtocolAuthorityStatus(status: ProtocolAuthorityStatus): number {

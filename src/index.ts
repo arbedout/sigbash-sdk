@@ -293,3 +293,24 @@ export type {
 // the canonical spend-identity form the proof system binds against. The two
 // share the WalletSignerKind union, exported once from contracts.
 export * from './wallet';
+
+// Principal access lifecycle — the client halves of the revocable-principal
+// grant, revoke, and recovery-rebind ceremonies (access rows, envelope
+// slot add/re-wrap, credential delivery). The wallet namespace above
+// carries the credential itself; this lane carries the ceremonies.
+export {
+  PrincipalAccessApi,
+  defaultPrincipalAccessWasm,
+} from './principalAccess';
+export type {
+  PrincipalAccessTransport,
+  PrincipalAccessWasm,
+  PrincipalGrantorAuth,
+  PrincipalKeyCommitments,
+  PrincipalGrantOptions,
+  PrincipalGrantResult,
+  PrincipalRevokeOptions,
+  PrincipalRevokeResult,
+  PrincipalRebindOptions,
+  PrincipalRebindResult,
+} from './principalAccess';

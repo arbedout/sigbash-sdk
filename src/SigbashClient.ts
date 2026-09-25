@@ -66,6 +66,18 @@ import {
 } from './audit-log';
 import { buildPolicyFromTemplate } from './templates';
 import { MAX_BATCH_INPUTS, PsbtInputLimitError, parsePsbtInputCount } from './wallet';
+import {
+  PrincipalAccessApi,
+} from './principalAccess';
+import type {
+  PrincipalGrantOptions,
+  PrincipalGrantResult,
+  PrincipalRevokeOptions,
+  PrincipalRevokeResult,
+  PrincipalRebindOptions,
+  PrincipalRebindResult,
+} from './principalAccess';
+import type { PolicyKeyAccessStatusV1 } from './contracts';
 import { SigbashSocket } from './socket';
 import { getProveWorkerManager } from './prove-worker-manager';
 import {
@@ -552,6 +564,12 @@ export class SigbashClient {
   private _socket: SigbashSocket | null = null;
 
   /**
+   * Lazily constructed principal access lifecycle surface, bound to this
+   * client's authenticated transport and org identity.
+   */
+  private _principalAccess: PrincipalAccessApi | null = null;
+
+  /**
    * Dedicated Socket.IO connection to /api/v2/musig2.
    * Lazily created on first signPSBT() call.  Go WASM reads
    * globalThis.sharedMusigSocket to use this connection for blind MuSig2.
@@ -825,6 +843,93 @@ export class SigbashClient {
         code || 'SERVER_ERROR'
       );
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Principal access lifecycle
+  // -------------------------------------------------------------------------
+
+  /**
+   * The revocable-principal lifecycle surface: grant, revoke, recovery
+   * rebind, status, and list. Bound lazily to this client's PoP-signing
+   * transport and org protocol apiKey so the ceremonies authenticate as
+   * this caller exactly as every other method does.
+   */
+  private _principalAccessApi(): PrincipalAccessApi {
+    if (this._principalAccess === null) {
+      this._principalAccess = new PrincipalAccessApi(
+        { authedFetch: (input, init) => this._authedFetch(input, init) },
+        this._apiKey,
+      );
+    }
+    return this._principalAccess;
+  }
+
+  /**
+   * Grant a new principal access to one PolicyKey: provision the
+   * credential, register its proof-of-possession row, seal a new envelope
+   * slot, install the access row, and upload the replacement envelope.
+   *
+   * The grantor must be an org admin; the caller's own envelope auth slot
+   * opens the KMC envelope locally. The returned `delivery` payload is the
+   * opaque credential serialization for the grantee's mailbox — seal it
+   * into the grantee's capability envelope before depositing; no secret
+   * material ever rides the network in these calls.
+   */
+  async grantPrincipalAccess(options: PrincipalGrantOptions): Promise<PrincipalGrantResult> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._principalAccessApi().grant(options);
+  }
+
+  /**
+   * Revoke a principal's access to one PolicyKey: flip the access row,
+   * rotate the envelope to a fresh content key with the revoked
+   * principal's slot dropped, and upload the replacement envelope. From
+   * the row flip onward the principal's credential authorizes nothing.
+   */
+  async revokePrincipalAccess(options: PrincipalRevokeOptions): Promise<PrincipalRevokeResult> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._principalAccessApi().revoke(options);
+  }
+
+  /**
+   * Recovery rebind: provision one fresh principal credential with access
+   * to every listed key (grants first, so the organization never loses a
+   * working principal), then revoke and re-wrap away the replaced
+   * principal on each key.
+   */
+  async rebindPrincipal(options: PrincipalRebindOptions): Promise<PrincipalRebindResult> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._principalAccessApi().rebind(options);
+  }
+
+  /** One principal's current access state for one key. */
+  async getPrincipalAccessStatus(
+    policyKeyId: string,
+    principalAuthHash: string,
+  ): Promise<PolicyKeyAccessStatusV1> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._principalAccessApi().status(policyKeyId, principalAuthHash);
+  }
+
+  /**
+   * List one key's access rows — principal auth hashes and states only.
+   * The auth hash is the only server-visible principal identifier; no
+   * surface here resolves a principal to a named application user.
+   */
+  async listPrincipalAccess(policyKeyId: string): Promise<PolicyKeyAccessStatusV1[]> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._principalAccessApi().list(policyKeyId);
   }
 
   // -------------------------------------------------------------------------

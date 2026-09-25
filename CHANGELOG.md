@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Principal access lifecycle: `SigbashClient.grantPrincipalAccess()`,
+  `revokePrincipalAccess()`, `rebindPrincipal()`,
+  `getPrincipalAccessStatus()`, and `listPrincipalAccess()`.** A principal
+  is a revocable non-human protocol identity for policy keys: one random
+  32-byte secret derives the auth hash (the only server-visible principal
+  identifier), the Ed25519 request-signing key, and a secp256k1 KMC slot
+  key under the new `sigbash.principal.v1` HKDF label space (org protocol
+  apiKey bound as salt). Grant composes PoP registration, the
+  `SigbashWASM_AddKMCPrincipalSlot` ceremony, the access row, and the
+  replacement envelope upload; revoke flips the row and re-wraps the
+  principal's slot away by its deterministic credential id; rebind
+  provisions one credential across several keys with grants before
+  revokes. Delivery returns opaque credential bytes for the caller to
+  seal into a capability envelope — the SDK never transports the secret.
+  Contract fix: `AtomicPolicyMutationV1.protocol_authority_proof` is
+  removed — the authority's proof of possession rides the
+  `X-Sigbash-Sig` request header, not the body.
 - **`systemPolicyReqkeyTemplatePayload()`** — the single composition-ready
   producer for the wallet-template REQKEY payload the composed system policy
   commits. It validates the wallet's template against the committed

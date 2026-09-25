@@ -84,3 +84,22 @@ export {
 export type { OrgProtocolRegistrationPrincipalV1 } from './orgProtocolKey';
 export { OrgProtocolKeyError } from './orgProtocolKeyErrors';
 export type { OrgProtocolKeyErrorCode } from './orgProtocolKeyErrors';
+export {
+  PRINCIPAL_CREDENTIAL_FORMAT_VERSION,
+  PRINCIPAL_CREDENTIAL_MAGIC,
+  PRINCIPAL_CREDENTIAL_HKDF_PREFIX,
+  generatePrincipalCredential,
+  principalAuthHash,
+  principalPopPublicKeyHex,
+  derivePrincipalSlotKey,
+  principalSlotCredentialId,
+  serializePrincipalCredential,
+  parsePrincipalCredential,
+  principalCredentialsEqual,
+  PrincipalCredentialError,
+} from './principalCredential';
+export type {
+  PrincipalCredentialV1,
+  PrincipalSlotKey,
+  PrincipalCredentialErrorCode,
+} from './principalCredential';
