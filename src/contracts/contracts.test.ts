@@ -30,6 +30,12 @@ import {
   decodeSigningAttemptState,
   decodeTransactionProposalState,
   decodeWalletDescriptorV1,
+  decodePolicyKeyAccessStatus,
+  decodeProtocolAuthorityStatus,
+  decodeSigningSessionState,
+  decodeSignerProvisioningState,
+  decodeChainEndpointScope,
+  decodeBroadcastVariant,
   encodeApprovalCommitmentV1,
   encodeEncryptedEventHeaderV1,
   encodeWalletDescriptorV1,
@@ -657,5 +663,58 @@ describe('Contract id allocation', () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ENCRYPTED_SYNC_ENVELOPE_VERSION).toBe(1);
     expect(ENCRYPTED_EVENT_HEADER_VERSION).toBe(1);
+  });
+});
+
+describe('PolicyKeyAccess status', () => {
+  it('round-trips every access status and fails closed on unknown codes', () => {
+    expect(decodePolicyKeyAccessStatus(0x01)).toBe('active');
+    expect(decodePolicyKeyAccessStatus(0x02)).toBe('revoked');
+    expect(() => decodePolicyKeyAccessStatus(0x00)).toThrow(ContractVersionError);
+    expect(() => decodePolicyKeyAccessStatus(0x03)).toThrow(ContractVersionError);
+  });
+});
+
+describe('Protocol authority status', () => {
+  it('round-trips every authority status and fails closed on unknown codes', () => {
+    expect(decodeProtocolAuthorityStatus(0x01)).toBe('active');
+    expect(decodeProtocolAuthorityStatus(0x02)).toBe('rotating');
+    expect(decodeProtocolAuthorityStatus(0x03)).toBe('retired');
+    expect(() => decodeProtocolAuthorityStatus(0x00)).toThrow(ContractVersionError);
+    expect(() => decodeProtocolAuthorityStatus(0x04)).toThrow(ContractVersionError);
+  });
+});
+
+describe('Signing session state', () => {
+  it('round-trips every session state and fails closed on unknown codes', () => {
+    expect(decodeSigningSessionState(0x01)).toBe('active');
+    expect(decodeSigningSessionState(0x02)).toBe('completed');
+    expect(decodeSigningSessionState(0x03)).toBe('abandoned');
+    expect(() => decodeSigningSessionState(0x00)).toThrow(ContractVersionError);
+    expect(() => decodeSigningSessionState(0x04)).toThrow(ContractVersionError);
+  });
+});
+
+describe('Signer provisioning states', () => {
+  it('round-trips every provisioning state and fails closed on unknown codes', () => {
+    const states = ['RESERVED', 'ASSEMBLED', 'COMPILED', 'SEALED', 'ACTIVATED', 'EXPIRED'] as const;
+    for (const state of states) {
+      expect(decodeSignerProvisioningState(0x01 + states.indexOf(state))).toBe(state);
+    }
+    expect(() => decodeSignerProvisioningState(0x00)).toThrow(ContractVersionError);
+    expect(() => decodeSignerProvisioningState(0x07)).toThrow(ContractVersionError);
+  });
+});
+
+describe('Chain endpoint scope and broadcast variant', () => {
+  it('round-trips the ruled scope and every broadcast variant, failing closed on unknowns', () => {
+    expect(decodeChainEndpointScope(0x01)).toBe('org');
+    expect(() => decodeChainEndpointScope(0x00)).toThrow(ContractVersionError);
+    expect(() => decodeChainEndpointScope(0x02)).toThrow(ContractVersionError);
+    expect(decodeBroadcastVariant(0x01)).toBe('default_endpoint');
+    expect(decodeBroadcastVariant(0x02)).toBe('operator_configured_endpoint');
+    expect(decodeBroadcastVariant(0x03)).toBe('download_self_broadcast');
+    expect(() => decodeBroadcastVariant(0x00)).toThrow(ContractVersionError);
+    expect(() => decodeBroadcastVariant(0x04)).toThrow(ContractVersionError);
   });
 });

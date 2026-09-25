@@ -279,3 +279,78 @@ export {
   isSigningSessionTerminal,
 } from './errors';
 export type { SigningApiErrorCode, SigningFailureClass } from './errors';
+
+export {
+  POLICY_KEY_ACCESS_VERSION,
+  POLICY_KEY_ACCESS_STATUS_VERSION,
+  POLICY_KEY_ACCESS_STATUS_CODES,
+  encodePolicyKeyAccessStatus,
+  decodePolicyKeyAccessStatus,
+} from './policyKeyAccess';
+export type {
+  PolicyKeyAccessStatus,
+  PolicyKeyAccessGrantV1,
+  PolicyKeyAccessRevokeV1,
+  PolicyKeyAccessStatusQueryV1,
+  PolicyKeyAccessStatusV1,
+} from './policyKeyAccess';
+
+export {
+  PROTOCOL_AUTHORITY_VERSION,
+  PROTOCOL_AUTHORITY_STATUS_VERSION,
+  ATOMIC_POLICY_MUTATION_VERSION,
+  PROTOCOL_AUTHORITY_STATUS_CODES,
+  encodeProtocolAuthorityStatus,
+  decodeProtocolAuthorityStatus,
+} from './protocolAuthority';
+export type {
+  ProtocolAuthorityStatus,
+  ProtocolAuthorityStateViewV1,
+  ProtocolAuthorityRotationRequestV1,
+  AtomicPolicyMutationV1,
+} from './protocolAuthority';
+
+export {
+  SIGNING_SESSION_VERSION,
+  SIGNING_SESSION_STATE_VERSION,
+  SIGNING_SESSION_STATE_CODES,
+  encodeSigningSessionState,
+  decodeSigningSessionState,
+} from './signingSession';
+export type {
+  SigningSessionState,
+  SigningSessionWireV1,
+  PerPolicyKeySessionDescriptorV1,
+} from './signingSession';
+
+export {
+  SIGNER_PROVISIONING_VERSION,
+  SIGNER_PROVISIONING_STATE_VERSION,
+  SIGNER_PROVISIONING_STATE_CODES,
+  encodeSignerProvisioningState,
+  decodeSignerProvisioningState,
+} from './signerProvisioning';
+export type { SignerProvisioningState, SignerReservationV1 } from './signerProvisioning';
+
+export { MANAGED_ORG_VIEW_VERSION } from './managedOrg';
+export type {
+  ManagedChildOrgEntryV1,
+  ManagedOrgRelationshipViewV1,
+} from './managedOrg';
+
+export {
+  CHAIN_ENDPOINT_CONFIG_VERSION,
+  BROADCAST_VARIANT_VERSION,
+  CHAIN_ENDPOINT_SCOPE_CODES,
+  BROADCAST_VARIANT_CODES,
+  encodeChainEndpointScope,
+  decodeChainEndpointScope,
+  encodeBroadcastVariant,
+  decodeBroadcastVariant,
+} from './chainPrivacy';
+export type {
+  ChainEndpointScope,
+  ChainEndpointConfigV1,
+  BroadcastVariant,
+  BroadcastResultV1,
+} from './chainPrivacy';
