@@ -18,7 +18,7 @@
  * a wallet template, and a malformed wallet template is always a hard error.
  */
 
-import { bytesToHex, concatBytes, hexToBytes, u16be, utf8 } from '../contracts/encoding';
+import { bytesToHex, concatBytes, hexToBytes, taggedHash, u16be, utf8 } from '../contracts/encoding';
 import { SYSTEM_REQKEY_DERIVATION_RANGE } from '../contracts/systemPolicy';
 import {
   WALLET_MAX_ALLOWED_SIGNER_SETS,
@@ -316,6 +316,27 @@ export function systemPolicyReqkeyTemplatePayload(wallet: InstitutionalWallet): 
   const payload = walletReqkeyTemplatePayload(wallet);
   validateWalletReqkeyTemplate(payload, SYSTEM_REQKEY_DERIVATION_RANGE);
   return payload;
+}
+
+/**
+ * Domain tag of the wallet-ownership REQKEY clause digest. The digest is
+ * the double-SHA-256 tagged hash over the placeholder template's canonical
+ * bytes; any change to the tag or the framing is a digest format change.
+ */
+export const WALLET_REQKEY_CLAUSE_DIGEST_DOMAIN_TAG = 'SIGBASH/WALLET/REQKEYDIGEST/V1';
+
+/**
+ * Digests the compiled wallet-ownership REQKEY clause: the double-SHA-256
+ * domain-tagged digest over the placeholder template's canonical bytes.
+ * This is the per-signer REQKEY digest a staged provisioning reservation
+ * records for its Sigbash slot. It is deterministic across rebuilds and
+ * independent of origin decoration, because the committed template is
+ * origin-less by construction.
+ */
+export function walletReqkeyClauseDigest(wallet: InstitutionalWallet): string {
+  const payload = walletReqkeyTemplatePayload(wallet);
+  const raw = hexToBytes(payload.slice(WALLET_REQKEY_TEMPLATE_PREFIX.length));
+  return bytesToHex(taggedHash(WALLET_REQKEY_CLAUSE_DIGEST_DOMAIN_TAG, raw));
 }
 
 function decodeTemplateBytes(payload: string): Uint8Array {

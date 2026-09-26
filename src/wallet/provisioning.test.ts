@@ -6,14 +6,21 @@
 
 import { HDKey } from '@scure/bip32';
 
+import { bytesToHex, taggedHash, utf8 } from '../contracts/encoding';
 import { SigbashSDKError } from '../errors';
 import {
   assembleStagedWalletDescriptor,
   MULTI_SIGBASH_UNSUPPORTED,
   preflightStagedSignerIntent,
+  PROVISIONING_INCOMPLETE_COMPILATION,
+  PROVISIONING_INVALID_DIGEST,
+  stagedSignerCompilations,
+  STAGED_EXTERNAL_REQKEY_DIGEST_DOMAIN_TAG,
   StagedProvisioningApi,
   type StagedSignerIntent,
+  type StagedSignerSlotHandleV1,
 } from './provisioning';
+import { walletReqkeyClauseDigest } from './reqkeyTemplate';
 import type { WalletSigner } from './walletBuilder';
 
 const SIGNET_VERSIONS = { private: 0x04358394, public: 0x043587cf };
@@ -33,6 +40,10 @@ function external(byte: number): WalletSigner {
 
 function intent(signers: WalletSigner[], sets: number[][] = [[0, 1]]): StagedSignerIntent {
   return { network: 'signet', signers, allowedSignerSets: sets };
+}
+
+function slotHandles(...kinds: WalletSigner['kind'][]): StagedSignerSlotHandleV1[] {
+  return kinds.map((kind, i) => ({ slot_index: i, kind, slot_token: `tok-${i}` }));
 }
 
 describe('multi-Sigbash pre-flight refusal', () => {
@@ -120,6 +131,193 @@ describe('pure-assembly determinism', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Compile producer
+// ---------------------------------------------------------------------------
+
+describe('staged compile producer', () => {
+  const mixed = intent([sigbash(0x60), external(0x61)]);
+  const mixedWallet = assembleStagedWalletDescriptor(mixed).wallet;
+
+  it('derives every record from the assembled wallet', () => {
+    const compilation = stagedSignerCompilations(
+      mixedWallet,
+      slotHandles('sigbash_policy_key', 'external_xpub'),
+      { 0: 'b'.repeat(64), 1: 'b'.repeat(64) },
+    );
+    expect(compilation.perSigner).toHaveLength(2);
+    // The Sigbash slot records the digest of the wallet's compiled
+    // wallet-ownership REQKEY clause.
+    expect(compilation.perSigner[0]).toEqual({
+      slot_index: 0,
+      policy_root: 'b'.repeat(64),
+      reqkey_digest: walletReqkeyClauseDigest(mixedWallet),
+    });
+    // An external slot carries no wallet-ownership clause: its record is
+    // a domain-separated commitment of the signer root it compiled against.
+    expect(compilation.perSigner[1]).toEqual({
+      slot_index: 1,
+      policy_root: 'b'.repeat(64),
+      reqkey_digest: bytesToHex(
+        taggedHash(STAGED_EXTERNAL_REQKEY_DIGEST_DOMAIN_TAG, utf8(seedXpub(0x61))),
+      ),
+    });
+  });
+
+  it('is deterministic across independent assemblies of the same wallet', () => {
+    const first = stagedSignerCompilations(
+      mixedWallet,
+      slotHandles('sigbash_policy_key', 'external_xpub'),
+      { 0: 'b'.repeat(64), 1: 'b'.repeat(64) },
+    );
+    const second = stagedSignerCompilations(
+      assembleStagedWalletDescriptor(mixed).wallet,
+      slotHandles('sigbash_policy_key', 'external_xpub'),
+      { 0: 'b'.repeat(64), 1: 'b'.repeat(64) },
+    );
+    expect(second.perSigner).toEqual(first.perSigner);
+  });
+
+  it('refuses a slot count that disagrees with the assembled wallet', () => {
+    expect(() =>
+      stagedSignerCompilations(mixedWallet, slotHandles('sigbash_policy_key'), {
+        0: 'b'.repeat(64),
+      }),
+    ).toThrow(/1 signer slots for a wallet of 2 signers/);
+    expect(() =>
+      stagedSignerCompilations(
+        mixedWallet,
+        [
+          ...slotHandles('sigbash_policy_key', 'external_xpub'),
+          { slot_index: 2, kind: 'external_xpub', slot_token: 'tok-2' },
+        ],
+        { 0: 'b'.repeat(64), 1: 'b'.repeat(64), 2: 'b'.repeat(64) },
+      ),
+    ).toThrow(/3 signer slots for a wallet of 2 signers/);
+  });
+
+  it('refuses a missing binding token', () => {
+    const slots = slotHandles('sigbash_policy_key', 'external_xpub');
+    expect(() =>
+      stagedSignerCompilations(mixedWallet, [{ ...slots[0], slot_token: '' }, slots[1]], {
+        0: 'b'.repeat(64),
+        1: 'b'.repeat(64),
+      }),
+    ).toThrow(/binding token/);
+  });
+
+  it('refuses a misaligned slot index', () => {
+    expect(() =>
+      stagedSignerCompilations(
+        mixedWallet,
+        slotHandles('sigbash_policy_key', 'external_xpub').map((slot) => ({
+          ...slot,
+          slot_index: slot.slot_index + 1,
+        })),
+        { 1: 'b'.repeat(64), 2: 'b'.repeat(64) },
+      ),
+    ).toThrow(/misaligned/);
+  });
+
+  it('refuses a slot kind that disagrees with the assembled wallet', () => {
+    expect(() =>
+      stagedSignerCompilations(mixedWallet, slotHandles('external_xpub', 'sigbash_policy_key'), {
+        0: 'b'.repeat(64),
+        1: 'b'.repeat(64),
+      }),
+    ).toThrow(/disagrees with the assembled wallet/);
+  });
+
+  it('refuses a missing or malformed policy root for any slot', () => {
+    expect(() =>
+      stagedSignerCompilations(mixedWallet, slotHandles('sigbash_policy_key', 'external_xpub'), {
+        1: 'b'.repeat(64),
+      }),
+    ).toThrow(/slot 0/);
+    expect(() =>
+      stagedSignerCompilations(mixedWallet, slotHandles('sigbash_policy_key', 'external_xpub'), {
+        0: 'b'.repeat(64),
+        1: 'zz'.repeat(32),
+      }),
+    ).toThrow(/slot 1/);
+  });
+
+  it('surfaces the server refusal codes on every fail-closed path', () => {
+    const codes: string[] = [];
+    const attempts: Array<() => unknown> = [
+      () => stagedSignerCompilations(mixedWallet, [], {}),
+      () =>
+        stagedSignerCompilations(
+          mixedWallet,
+          slotHandles('sigbash_policy_key', 'external_xpub').map((slot) => ({
+            ...slot,
+            slot_index: slot.slot_index + 1,
+          })),
+          {},
+        ),
+      () =>
+        stagedSignerCompilations(mixedWallet, slotHandles('external_xpub', 'sigbash_policy_key'), {
+          0: 'b'.repeat(64),
+          1: 'b'.repeat(64),
+        }),
+      () =>
+        stagedSignerCompilations(mixedWallet, slotHandles('sigbash_policy_key', 'external_xpub'), {
+          0: 'b'.repeat(64),
+        }),
+      () =>
+        stagedSignerCompilations(mixedWallet, slotHandles('sigbash_policy_key', 'external_xpub'), {
+          0: 'b'.repeat(64),
+          1: 'zz'.repeat(32),
+        }),
+    ];
+    for (const attempt of attempts) {
+      try {
+        attempt();
+        throw new Error('producer refusal expected');
+      } catch (error) {
+        codes.push((error as SigbashSDKError).code);
+      }
+    }
+    expect(codes).toEqual([
+      PROVISIONING_INCOMPLETE_COMPILATION,
+      PROVISIONING_INCOMPLETE_COMPILATION,
+      PROVISIONING_INCOMPLETE_COMPILATION,
+      PROVISIONING_INVALID_DIGEST,
+      PROVISIONING_INVALID_DIGEST,
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-implementation golden digest
+// ---------------------------------------------------------------------------
+
+// The staged-shaped golden digest is pinned on both sides of the wire: this
+// literal is reproduced by the Go staged test section over the identical
+// fixture derivation (the signet master xpubs of 32-byte fixed seeds
+// 0xD1/0xD2/0xD3, the committed policy-key label 'pk-staged', and the
+// mixed two-of-three subsets), so any drift in either side's template
+// encoding, tag construction, or digest framing moves it.
+const GOLDEN_STAGED_REQKEY_DIGEST = '7d8d483a851a947cdd44a2814046dae30b736b54bce3f479f246bf6ee7a54a36';
+
+describe('staged reqkey clause digest golden', () => {
+  it('reproduces the cross-implementation golden digest over the staged fixture', () => {
+    const { wallet } = assembleStagedWalletDescriptor({
+      network: 'signet',
+      signers: [sigbash(0xd1), external(0xd2), external(0xd3)],
+      allowedSignerSets: [[0, 1], [0, 2], [0, 1, 2]],
+    });
+    expect(walletReqkeyClauseDigest(wallet)).toBe(GOLDEN_STAGED_REQKEY_DIGEST);
+    // The producer's Sigbash slot record rides the same digest.
+    const compilation = stagedSignerCompilations(
+      wallet,
+      slotHandles('sigbash_policy_key', 'external_xpub', 'external_xpub'),
+      { 0: 'b'.repeat(64), 1: 'b'.repeat(64), 2: 'b'.repeat(64) },
+    );
+    expect(compilation.perSigner[0].reqkey_digest).toBe(GOLDEN_STAGED_REQKEY_DIGEST);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Lifecycle transport
 // ---------------------------------------------------------------------------
 
@@ -199,9 +397,23 @@ describe('staged provisioning lifecycle transport', () => {
     expect(captured[0].path).toBe(`${RESERVATION_BASE}/res-1/seal`);
   });
 
-  it('rides the lifecycle paths with the committed digests only', async () => {
+  it('rides the lifecycle paths with the producer-derived records', async () => {
     const captured: Captured[] = [];
     const api = new StagedProvisioningApi(transport([
+      {
+        status: 200,
+        body: {
+          success: true,
+          reservation_id: 'res-1',
+          state: 'RESERVED',
+          network: 'signet',
+          expires_at: '2026-09-28T00:00:00Z',
+          slots: [
+            { slot_index: 0, kind: 'sigbash_policy_key', slot_token: 'tok-0' },
+            { slot_index: 1, kind: 'external_xpub', slot_token: 'tok-1' },
+          ],
+        },
+      },
       { status: 200, body: { success: true, state: 'ASSEMBLED' } },
       { status: 200, body: { success: true, state: 'COMPILED' } },
       { status: 200, body: { success: true, state: 'SEALED' } },
@@ -210,16 +422,23 @@ describe('staged provisioning lifecycle transport', () => {
       { status: 200, body: { success: true, state: 'RESERVED' } },
     ], captured));
 
+    const created = await api.createReservation(intent([sigbash(0x40), external(0x41)]));
+    const { wallet } = assembleStagedWalletDescriptor(intent([sigbash(0x40), external(0x41)]));
     await api.assemble('res-1', 'a'.repeat(64));
-    await api.compile('res-1', [
-      { slot_index: 0, policy_root: 'b'.repeat(64), reqkey_digest: 'c'.repeat(64) },
-    ]);
+    await api.compile(
+      'res-1',
+      stagedSignerCompilations(wallet, created.slots, {
+        0: 'b'.repeat(64),
+        1: 'b'.repeat(64),
+      }),
+    );
     await api.seal('res-1');
     await api.activate('res-1');
     await api.abandon('res-1');
     await api.getReservation('res-1');
 
     expect(captured.map((c) => c.path)).toEqual([
+      RESERVATION_BASE,
       `${RESERVATION_BASE}/res-1/assemble`,
       `${RESERVATION_BASE}/res-1/compile`,
       `${RESERVATION_BASE}/res-1/seal`,
@@ -227,9 +446,15 @@ describe('staged provisioning lifecycle transport', () => {
       `${RESERVATION_BASE}/res-1`,
       `${RESERVATION_BASE}/res-1`,
     ]);
-    const assembleBody = JSON.parse(String(captured[0].init?.body));
+    const assembleBody = JSON.parse(String(captured[1].init?.body));
     expect(assembleBody.descriptor_digest).toBe('a'.repeat(64));
-    const compileBody = JSON.parse(String(captured[1].init?.body));
-    expect(compileBody.per_signer[0].reqkey_digest).toBe('c'.repeat(64));
+    const compileBody = JSON.parse(String(captured[2].init?.body));
+    expect(compileBody.per_signer).toEqual(
+      stagedSignerCompilations(wallet, created.slots, {
+        0: 'b'.repeat(64),
+        1: 'b'.repeat(64),
+      }).perSigner,
+    );
+    expect(compileBody.per_signer[0].reqkey_digest).toBe(walletReqkeyClauseDigest(wallet));
   });
 });

@@ -15,6 +15,7 @@ import {
   encodeWalletCanonicalBytes,
   systemPolicyReqkeyTemplatePayload,
   validateWalletReqkeyTemplate,
+  walletReqkeyClauseDigest,
   walletReqkeyTemplatePayload,
 } from './reqkeyTemplate';
 import { buildInstitutionalWalletDescriptor, type InstitutionalWallet } from './walletBuilder';
@@ -180,5 +181,63 @@ describe('system-policy template payload', () => {
     const payload = systemPolicyReqkeyTemplatePayload(singleSigbashWallet());
     expect(() => validateWalletReqkeyTemplate(payload, 256)).toThrow(/no deterministic subset meaning/);
     expect(() => validateWalletReqkeyTemplate(payload, 1000)).toThrow(/no deterministic subset meaning/);
+  });
+});
+
+describe('clause digest', () => {
+  it('digests the compiled clause deterministically across independent builds', () => {
+    const first = walletReqkeyClauseDigest(singleSigbashWallet());
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(walletReqkeyClauseDigest(singleSigbashWallet())).toBe(first);
+  });
+
+  it('moves with any change to the committed wallet material', () => {
+    const mixedWallet = (externalSeed: number, label = 'pk-wallet') =>
+      buildInstitutionalWalletDescriptor({
+        network: 'signet',
+        signers: [
+          { kind: 'sigbash_policy_key', xpub: seedXpub(0x50), policyKeyId: label },
+          { kind: 'external_xpub', xpub: seedXpub(externalSeed) },
+        ],
+        allowedSignerSets: [[0, 1]],
+      });
+    const base = walletReqkeyClauseDigest(mixedWallet(0x51));
+    const otherSigner = walletReqkeyClauseDigest(mixedWallet(0x52));
+    const otherLabel = walletReqkeyClauseDigest(mixedWallet(0x51, 'pk-other'));
+    expect(otherSigner).not.toBe(base);
+    expect(otherLabel).not.toBe(base);
+  });
+
+  it('never embeds the Sigbash key material: the digest survives a signer swap', () => {
+    // The placeholder template commits the wallet without the Sigbash
+    // signer's xpub by design, so the digest must not move when only that
+    // xpub changes — the clause binds the wallet shape, not the key.
+    const first = walletReqkeyClauseDigest(
+      buildInstitutionalWalletDescriptor({
+        network: 'signet',
+        signers: [{ kind: 'sigbash_policy_key', xpub: seedXpub(0x50), policyKeyId: 'pk-wallet' }],
+        allowedSignerSets: [[0]],
+      })
+    );
+    const second = walletReqkeyClauseDigest(
+      buildInstitutionalWalletDescriptor({
+        network: 'signet',
+        signers: [{ kind: 'sigbash_policy_key', xpub: seedXpub(0x53), policyKeyId: 'pk-wallet' }],
+        allowedSignerSets: [[0]],
+      })
+    );
+    expect(second).toBe(first);
+  });
+
+  it('inherits the single-Sigbash template gate', () => {
+    const wallet = buildInstitutionalWalletDescriptor({
+      network: 'signet',
+      signers: [
+        { kind: 'sigbash_policy_key', xpub: seedXpub(0x51), policyKeyId: 'pk-a' },
+        { kind: 'sigbash_policy_key', xpub: seedXpub(0x52), policyKeyId: 'pk-b' },
+      ],
+      allowedSignerSets: [[0, 1]],
+    });
+    expect(() => walletReqkeyClauseDigest(wallet)).toThrow(/exactly one Sigbash signer/);
   });
 });

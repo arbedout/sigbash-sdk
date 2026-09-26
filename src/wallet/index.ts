@@ -32,7 +32,11 @@ export type { InstitutionalWallet, WalletRecoveryBranches, WalletSigner, WalletS
 export {
   assembleStagedWalletDescriptor,
   preflightStagedSignerIntent,
+  stagedSignerCompilations,
   MULTI_SIGBASH_UNSUPPORTED,
+  PROVISIONING_INVALID_DIGEST,
+  PROVISIONING_INCOMPLETE_COMPILATION,
+  STAGED_EXTERNAL_REQKEY_DIGEST_DOMAIN_TAG,
 } from './provisioning';
 export type {
   StagedAssemblyV1,
@@ -40,6 +44,7 @@ export type {
   StagedSignerSlotHandleV1,
   StagedReservationCreatedV1,
   StagedSignerCompilationV1,
+  StagedSignerCompilationsV1,
   StagedProvisioningTransport,
 } from './provisioning';
 export { StagedProvisioningApi } from './provisioning';
@@ -71,7 +76,9 @@ export {
   encodeWalletCanonicalBytes,
   systemPolicyReqkeyTemplatePayload,
   validateWalletReqkeyTemplate,
+  walletReqkeyClauseDigest,
   walletReqkeyTemplatePayload,
+  WALLET_REQKEY_CLAUSE_DIGEST_DOMAIN_TAG,
 } from './reqkeyTemplate';
 export { parsePsbtInputCount } from './psbtInputCount';
 export {

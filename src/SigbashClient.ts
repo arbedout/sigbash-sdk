@@ -69,7 +69,7 @@ import { MAX_BATCH_INPUTS, PsbtInputLimitError, parsePsbtInputCount } from './wa
 import {
   StagedProvisioningApi,
   type StagedReservationCreatedV1,
-  type StagedSignerCompilationV1,
+  type StagedSignerCompilationsV1,
   type StagedSignerIntent,
 } from './wallet/provisioning';
 import {
@@ -982,15 +982,19 @@ export class SigbashClient {
     return this._stagedProvisioningApi().assemble(reservationId, descriptorDigest);
   }
 
-  /** Record every signer's compiled policy root and REQKEY digest. */
+  /**
+   * Record every signer's compiled policy root and REQKEY digest. The
+   * record must come from stagedSignerCompilations over the assembled
+   * wallet — the client surface never accepts hand-built hex arrays.
+   */
   async compileSignerReservation(
     reservationId: string,
-    perSigner: StagedSignerCompilationV1[],
+    compilation: StagedSignerCompilationsV1,
   ): Promise<void> {
     if (this.#disposed) {
       throw new ClientDisposedError();
     }
-    return this._stagedProvisioningApi().compile(reservationId, perSigner);
+    return this._stagedProvisioningApi().compile(reservationId, compilation);
   }
 
   /** Seal the staged wallet: freeze the committed intent and digest. */
