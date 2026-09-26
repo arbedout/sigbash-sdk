@@ -30,6 +30,20 @@ export {
 } from './walletBuilder';
 export type { InstitutionalWallet, WalletRecoveryBranches, WalletSigner, WalletSignerKind } from './walletBuilder';
 export {
+  assembleStagedWalletDescriptor,
+  preflightStagedSignerIntent,
+  MULTI_SIGBASH_UNSUPPORTED,
+} from './provisioning';
+export type {
+  StagedAssemblyV1,
+  StagedSignerIntent,
+  StagedSignerSlotHandleV1,
+  StagedReservationCreatedV1,
+  StagedSignerCompilationV1,
+  StagedProvisioningTransport,
+} from './provisioning';
+export { StagedProvisioningApi } from './provisioning';
+export {
   canonicalWalletDescriptorText,
   canonicalWalletDescriptorTextWithChecksum,
   descriptorChecksum,

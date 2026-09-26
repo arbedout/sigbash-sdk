@@ -67,6 +67,12 @@ import {
 import { buildPolicyFromTemplate } from './templates';
 import { MAX_BATCH_INPUTS, PsbtInputLimitError, parsePsbtInputCount } from './wallet';
 import {
+  StagedProvisioningApi,
+  type StagedReservationCreatedV1,
+  type StagedSignerCompilationV1,
+  type StagedSignerIntent,
+} from './wallet/provisioning';
+import {
   PrincipalAccessApi,
 } from './principalAccess';
 import type {
@@ -930,6 +936,85 @@ export class SigbashClient {
       throw new ClientDisposedError();
     }
     return this._principalAccessApi().list(policyKeyId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Staged multi-signer wallet provisioning
+  // -------------------------------------------------------------------------
+
+  private _stagedProvisioning: StagedProvisioningApi | null = null;
+
+  private _stagedProvisioningApi(): StagedProvisioningApi {
+    if (this._stagedProvisioning === null) {
+      this._stagedProvisioning = new StagedProvisioningApi({
+        authedFetch: (input, init) => this._authedFetch(input, init),
+      });
+    }
+    return this._stagedProvisioning;
+  }
+
+  /**
+   * Reserve the staged signer-set intent for one wallet. Each signer slot
+   * comes back with an opaque binding token its key submission must
+   * present; the intent is refused up front when it carries more than one
+   * policy-bound Sigbash signer.
+   */
+  async createSignerReservation(intent: StagedSignerIntent): Promise<StagedReservationCreatedV1> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().createReservation(intent);
+  }
+
+  /** Read one staged reservation's lifecycle state. */
+  async getSignerReservation(reservationId: string): Promise<Record<string, unknown>> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().getReservation(reservationId);
+  }
+
+  /** Commit the assembled canonical wallet descriptor's digest. */
+  async assembleSignerReservation(reservationId: string, descriptorDigest: string): Promise<void> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().assemble(reservationId, descriptorDigest);
+  }
+
+  /** Record every signer's compiled policy root and REQKEY digest. */
+  async compileSignerReservation(
+    reservationId: string,
+    perSigner: StagedSignerCompilationV1[],
+  ): Promise<void> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().compile(reservationId, perSigner);
+  }
+
+  /** Seal the staged wallet: freeze the committed intent and digest. */
+  async sealSignerReservation(reservationId: string): Promise<void> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().seal(reservationId);
+  }
+
+  /** Activate the sealed wallet: every bound signer becomes sign-capable. */
+  async activateSignerReservation(reservationId: string): Promise<void> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().activate(reservationId);
+  }
+
+  /** Abandon a live reservation; nothing bound to it can ever activate. */
+  async abandonSignerReservation(reservationId: string): Promise<void> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+    return this._stagedProvisioningApi().abandon(reservationId);
   }
 
   // -------------------------------------------------------------------------
