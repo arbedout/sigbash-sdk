@@ -17,6 +17,7 @@ export const CAPABILITY_GROUP_ORG_COMMON = 'org-common';
 export const CAPABILITY_GROUP_POLICY_GOVERNANCE = 'policy-governance';
 export const CAPABILITY_GROUP_AUDIT = 'audit';
 export const CAPABILITY_GROUP_SECURITY_RECOVERY = 'security-recovery';
+export const CAPABILITY_GROUP_PROTOCOL_AUTHORITY = 'protocol-authority';
 
 export const CAPABILITY_GROUP_WALLET_PREFIX = 'wallet:';
 
@@ -25,6 +26,7 @@ export type CapabilityGroupId =
   | typeof CAPABILITY_GROUP_POLICY_GOVERNANCE
   | typeof CAPABILITY_GROUP_AUDIT
   | typeof CAPABILITY_GROUP_SECURITY_RECOVERY
+  | typeof CAPABILITY_GROUP_PROTOCOL_AUTHORITY
   | (typeof CAPABILITY_GROUP_WALLET_PREFIX & { readonly walletScope: unique symbol });
 
 /**
@@ -45,7 +47,8 @@ export function parseCapabilityGroupId(value: string): string {
     value === CAPABILITY_GROUP_ORG_COMMON ||
     value === CAPABILITY_GROUP_POLICY_GOVERNANCE ||
     value === CAPABILITY_GROUP_AUDIT ||
-    value === CAPABILITY_GROUP_SECURITY_RECOVERY
+    value === CAPABILITY_GROUP_SECURITY_RECOVERY ||
+    value === CAPABILITY_GROUP_PROTOCOL_AUTHORITY
   ) {
     return value;
   }

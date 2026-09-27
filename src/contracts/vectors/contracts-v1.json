@@ -332,6 +332,16 @@
       "group_id": "wallet:6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
       "epoch": 7,
       "encoding_hex": "77616c6c65743a36663936313966662d386238362d346430312d623432642d3030636634666339363466660000000000000007"
+    },
+    {
+      "group_id": "protocol-authority",
+      "epoch": 1,
+      "encoding_hex": "70726f746f636f6c2d617574686f726974790000000000000001"
+    },
+    {
+      "group_id": "protocol-authority",
+      "epoch": 7,
+      "encoding_hex": "70726f746f636f6c2d617574686f726974790000000000000007"
     }
   ],
   "recovery_envelope_v1": {

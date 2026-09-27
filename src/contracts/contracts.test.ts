@@ -389,12 +389,33 @@ describe('Capability groups and epochs', () => {
     expect(parseCapabilityGroupId('policy-governance')).toBe('policy-governance');
     expect(parseCapabilityGroupId('audit')).toBe('audit');
     expect(parseCapabilityGroupId('security-recovery')).toBe('security-recovery');
+    expect(parseCapabilityGroupId('protocol-authority')).toBe('protocol-authority');
     expect(parseCapabilityGroupId('wallet:6f9619ff-8b86-4d01-b42d-00cf4fc964ff')).toBe(
       'wallet:6f9619ff-8b86-4d01-b42d-00cf4fc964ff',
     );
     expect(() => parseCapabilityGroupId('everything')).toThrow(ContractVersionError);
     expect(() => parseCapabilityGroupId('wallet:not-a-uuid')).toThrow(ContractVersionError);
     expect(() => parseCapabilityGroupId('')).toThrow(ContractVersionError);
+  });
+
+  it('rejects every near-miss spelling of the protocol-authority group', () => {
+    const nearMisses = [
+      'protocol_authority',
+      'protocol-authorities',
+      'authority',
+      'protocol-governance',
+      'policy-authority',
+      'security-authority',
+      'Protocol-Authority',
+      'protocol-authority ',
+      ' protocol-authority',
+      'protocol-authority:6f9619ff-8b86-4d01-b42d-00cf4fc964ff',
+      'protocolauthority',
+    ];
+    for (const candidate of nearMisses) {
+      expect(() => parseCapabilityGroupId(candidate)).toThrow(ContractVersionError);
+      expect(() => encodeCapabilityEpoch(candidate, 1)).toThrow(ContractVersionError);
+    }
   });
 
   it('rejects zero epochs and non-integer epochs', () => {
