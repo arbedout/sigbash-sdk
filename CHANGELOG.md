@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Transaction authorization: `SigbashClient.authorizePSBT()`,
+  `verifyAuthorization()`, `getAuthorizationStatus()`, and the read-only
+  `verifyPSBT()` dry run.** A client proves a PSBT satisfies its policy
+  without revealing it, and the server issues a signed authorization
+  artifact bound to the exact action (subject commitment over the BIP-341
+  sighashes) — independently verifiable offline, never equivalent to
+  MuSig2 co-signing. `authorizePSBT()` obtains the artifact (and consumes
+  the shared stateful burn); `verifyAuthorization()` runs the two-stage
+  verification checklist (signature-vs-envelope, then salt-context
+  subject re-derivation vs the transaction — fail-closed
+  `SUBJECT_CHECK_UNAVAILABLE` without the salt); `getAuthorizationStatus()`
+  reads burn state; `verifyPSBT()` never burns.
+- **Authorization adapter registry** (`AuthorizationSubjectAdapter` with a
+  built-in Bitcoin PSBT adapter) and **issuer key-set handling**
+  (fetch + SHA-384 constant-time pinning, historical keys for rotation).
+- **Key model container fields** (`KeyOrigin`, `KeyScheme`,
+  `KeyCapability[]`, legacy defaults) and **`keyRole` in key listings** —
+  distinguishing authorization-only (user-supplied) keys from signing
+  (Sigbash MuSig2) keys.
+- **Artifact/subject contract codecs** (`contracts/authorizationArtifact`,
+  `contracts/authorizationSubject`) mirroring the server canonical
+  encoding, with re-encode-and-compare and trailing-garbage rejection.
+- **BIP-174 reader fixes:** trailing-fee-map demand removed, `readLe32`
+  sign-truncation fixed, `TAP_LEAF_SCRIPT` key corrected (`0x15`).
+- Docs: `docs/transaction-authorization.md` (API surface) and
+  `docs/authorization.md` (enforcement strengths, verification modes,
+  threat boundaries).
+
 - **Principal access lifecycle: `SigbashClient.grantPrincipalAccess()`,
   `revokePrincipalAccess()`, `rebindPrincipal()`,
   `getPrincipalAccessStatus()`, and `listPrincipalAccess()`.** A principal
