@@ -314,3 +314,70 @@ export type {
   PrincipalRebindOptions,
   PrincipalRebindResult,
 } from './principalAccess';
+
+// Authorization lane — software-enforced policy attestation (ADR-033).
+// The artifact attests policy compliance for a subject commitment; it is
+// never a Bitcoin signature and never equivalent to cosigning.
+export {
+  registerAuthorizationAdapter,
+  getAuthorizationAdapter,
+  registeredAuthorizationSubjects,
+  authorizationPinAggregateFromEnvelope,
+  authorizationBurnSetAggregateFromEnvelope,
+  authorizationActionKeyFromBurnPair,
+} from './authorization/adapterRegistry';
+export type { AuthorizationSubjectAdapter } from './authorization/adapterRegistry';
+export {
+  AUTHORIZATION_ENVELOPE_VERSION,
+  parseAuthorizationEnvelope,
+  selectCovenantWriteCommit,
+  completingPositionOf,
+  fixedBytes,
+} from './authorization/envelope';
+export type {
+  AuthorizationEnvelope,
+  AuthorizationEnvelopePosition,
+  AuthorizationPositionDisclosure,
+  AuthorizationPublicInputs,
+  AuthorizationBundle,
+} from './authorization/envelope';
+export { bitcoinPsbtAdapter, ensureBitcoinPsbtAdapterRegistered } from './authorization/bitcoinPsbtAdapter';
+export { loadIssuerKeySet, cachedIssuerKeySet, issuerKeyForKid } from './authorization/issuerKeySet';
+export type {
+  IssuerKeysetDoc,
+  IssuerKeysetEntry,
+  LoadedIssuerKeySet,
+  LoadIssuerKeySetOptions,
+} from './authorization/issuerKeySet';
+export {
+  ISSUER_KEYSET_DOC_VERSION,
+  ISSUER_KEYSET_RETENTION_SECONDS,
+  ISSUER_KID_PREFIX,
+} from './authorization/issuerKeySet';
+export { verifyAuthorization } from './authorization/verify';
+export type {
+  VerifyAuthorizationOptions,
+  VerifyAuthorizationResult,
+  AuthorizationCredentialContext,
+} from './authorization/verify';
+export {
+  normalizeKeyModelMetadata,
+  stampKeyModelMetadata,
+  keyModelMetadataOf,
+  authorizationKeyRoleOf,
+} from './authorization/keyModel';
+export type {
+  KeyOrigin,
+  KeyScheme,
+  KeyCapability,
+  KeyModelMetadata,
+  AuthorizationKeyRole,
+} from './authorization/keyModel';
+export type {
+  AuthorizePSBTOptions,
+  AuthorizationResult,
+  VerifyAuthorizationClientOptions,
+  VerifyAuthorizationClientResult,
+  GetAuthorizationStatusOptions,
+  GetAuthorizationStatusResult,
+} from './types';

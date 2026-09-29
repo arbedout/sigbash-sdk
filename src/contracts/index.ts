@@ -361,3 +361,53 @@ export type {
   BroadcastVariant,
   BroadcastResultV1,
 } from './chainPrivacy';
+
+// Authorization artifact — the issuer-signed, offline-verifiable attestation
+// (Moon's little-endian wire contract; see the module header).
+export {
+  AUTHORIZATION_ARTIFACT_VERSION,
+  AUTHORIZATION_ARTIFACT_ENCODING_PREFIX,
+  AUTHORIZATION_ARTIFACT_MAX_LENGTH_PREFIXED_BYTES,
+  AUTHORIZATION_SUBJECT_KIND_BITCOIN_PSBT,
+  AUTHORIZATION_PROTOCOL_BITCOIN,
+  AUTHORIZATION_STRENGTH_SOFTWARE_ENFORCED,
+  encodeAuthorizationArtifactV1,
+  decodeAuthorizationArtifactV1,
+  decodeSignedAuthorizationArtifact,
+  issuerKidFromEncoding,
+} from './authorizationArtifact';
+export type {
+  AuthorizationArtifactFields,
+  EncodedAuthorizationArtifact,
+  AuthorizationArtifactDecodeFailure,
+} from './authorizationArtifact';
+export { AuthorizationArtifactFormatError } from './authorizationArtifact';
+
+// Authorization subject binding — the lane's cryptographic constructions
+// (R' derivation, lane sighashes, beta/e-prime/e-hat, pin and burn-set
+// aggregates, scope and action keys), asserted against the committed
+// golden vectors.
+export {
+  authzDeriveRNonceX,
+  authzPrevoutQ,
+  authzSighashKeyPath,
+  authzSighashAcpKeyPath,
+  authzSighashTapscriptKeyPath,
+  authzSighashAcpTapscript,
+  tapscriptExtension,
+  authzBeta,
+  authzEPrime,
+  authzEHat,
+  authzPinAggregate,
+  authzBurnSetAggregate,
+  authzActionKey,
+  authzActionKeyFromBurnPair,
+  authzScope,
+} from './authorizationSubject';
+export type {
+  AuthzTxInput,
+  AuthzTxOutput,
+  AuthzPinEntry,
+  AuthzChunkEntry,
+  AuthzCompletingPins,
+} from './authorizationSubject';

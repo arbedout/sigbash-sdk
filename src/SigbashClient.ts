@@ -30,7 +30,34 @@ import type {
   UpdatePolicyOptions,
   AuditLogEntry,
   AuditLogsOptions,
+  AuthorizePSBTOptions,
+  AuthorizationResult,
+  VerifyAuthorizationClientOptions,
+  VerifyAuthorizationClientResult,
+  GetAuthorizationStatusOptions,
+  GetAuthorizationStatusResult,
 } from './types';
+import type { NetworkId } from './contracts/network';
+import type { LoadedIssuerKeySet } from './authorization/issuerKeySet';
+import { decodeAuthorizationArtifactV1 } from './contracts/authorizationArtifact';
+import {
+  authzBurnSetAggregate,
+  bytesToHex,
+  hexToBytes,
+} from './contracts/authorizationSubject';
+import { parseAuthorizationEnvelope } from './authorization/envelope';
+import {
+  authorizationActionKeyFromBurnPair,
+  authorizationBurnSetAggregateFromEnvelope,
+  authorizationPinAggregateFromEnvelope,
+} from './authorization/adapterRegistry';
+import {
+  cachedIssuerKeySet,
+  issuerKeyForKid,
+  loadIssuerKeySet,
+} from './authorization/issuerKeySet';
+import { verifyAuthorization } from './authorization/verify';
+import { verifyAsync } from '@noble/ed25519';
 
 import {
   AdminError,
@@ -84,6 +111,12 @@ import type {
   PrincipalRebindResult,
 } from './principalAccess';
 import type { PolicyKeyAccessStatusV1 } from './contracts';
+import {
+  authorizationKeyRoleOf,
+  keyModelMetadataOf,
+  normalizeKeyModelMetadata,
+  stampKeyModelMetadata,
+} from './authorization/keyModel';
 import { SigbashSocket } from './socket';
 import { getProveWorkerManager } from './prove-worker-manager';
 import {
@@ -129,6 +162,36 @@ interface WasmSignResult {
   path_id?: string;
   satisfied_clause?: string;
   error?: string;
+}
+
+// WASM authorization export result shape (SigbashWASM_AuthorizePSBT).
+interface WasmAuthorizeResult {
+  success?: boolean;
+  /** Stable honest-failure reason when success is false. */
+  reason?: string;
+  detail?: string;
+  envelope_json?: string;
+  subject_commitment_hex?: string;
+  burn_commitments?: string[];
+  session_id_hex?: string;
+  path_id?: string;
+  satisfied_clause?: string;
+  policy_root?: string;
+  lifetime_seconds?: number;
+  nullifier_status?: Array<{
+    input_index: number;
+    available: boolean;
+    message: string;
+  }>;
+}
+
+// The authorization lane's lifetime window (seconds), mirroring the server
+// and WASM bounds.
+const DEFAULT_LIFETIME_SECONDS = 900;
+const MAX_LIFETIME_SECONDS = 86400;
+
+function base64ToBytes(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }
 
 // WASM verify result shape as returned by Go WASM export
@@ -1058,6 +1121,9 @@ export class SigbashClient {
       bip328Xpub: summaries[i].bip328Xpub,
       bip328Descriptor: summaries[i].bip328Descriptor,
       poetJSON: summaries[i].poetJSON,
+      origin: summaries[i].origin,
+      capabilities: summaries[i].capabilities,
+      keyRole: summaries[i].keyRole,
     }));
   }
 
@@ -1321,8 +1387,7 @@ export class SigbashClient {
       );
     }
 
-    const kmcJSON = aggregateResult.kmc_json!;
-    const kmc = JSON.parse(kmcJSON) as object;
+    const kmc = stampKeyModelMetadata(JSON.parse(aggregateResult.kmc_json!) as object);
 
     // Sync policy root — descriptor-mode conditions (ISIS/DNNO) rebuild PathLeafs
     // after the BIP-328 xpub is available, which recomputes the PolicyRoot.  The
@@ -1404,6 +1469,7 @@ export class SigbashClient {
     const bip328Descriptor = (aggregateResult.bip328_descriptor as string | undefined) ?? undefined;
 
     if (!options.verbose) {
+      const metadata = keyModelMetadataOf(kmc);
       return {
         keyId: response.key_id,
         keyIndex,
@@ -1412,6 +1478,9 @@ export class SigbashClient {
         bip328Descriptor,
         poetJSON: _extractPoetJSON(kmc),
         updateable: options.updateable === true,
+        origin: metadata.origin,
+        capabilities: metadata.capabilities,
+        keyRole: authorizationKeyRoleOf(metadata),
       };
     }
 
@@ -1470,7 +1539,8 @@ export class SigbashClient {
     }
 
     const envelope = JSON.parse(response.encrypted_key_material) as KMCEnvelope;
-    const kmc = await decryptKMCEnvelope(envelope, this._apiKey, this._userKey, this._userSecretKey);
+    const kmc = normalizeKeyModelMetadata(
+      await decryptKMCEnvelope(envelope, this._apiKey, this._userKey, this._userSecretKey));
     const kmcJSON = JSON.stringify(kmc);
 
     // Restore #musig2PrivateKey from the decrypted KMC participants array.
@@ -1512,6 +1582,7 @@ export class SigbashClient {
     const kmcObj = kmc as Record<string, unknown>;
 
     if (!opts?.verbose) {
+      const metadata = keyModelMetadataOf(kmc);
       const summary: KeySummary = {
         keyId,
         keyIndex,
@@ -1520,6 +1591,9 @@ export class SigbashClient {
         bip328Descriptor: (kmcObj.bip328_descriptor as string | undefined) ?? undefined,
         poetJSON: _extractPoetJSON(kmc),
         updateable: response.updateable ?? false,
+        origin: metadata.origin,
+        capabilities: metadata.capabilities,
+        keyRole: authorizationKeyRoleOf(metadata),
       };
       if (response.policy_update_count !== undefined && response.policy_update_count > 0) {
         summary.policyUpdateCount = response.policy_update_count;
@@ -1694,58 +1768,8 @@ export class SigbashClient {
     (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = serverBase;
     const baseFetch = (globalThis as Record<string, unknown>)['fetch'] as typeof fetch;
     const popKeyResolved = await this._popKey;
-    (globalThis as Record<string, unknown>)['fetch'] = (async (
-      input: Parameters<typeof fetch>[0],
-      init?: Parameters<typeof fetch>[1]
-    ) => {
-      const isRelative = typeof input === 'string' && input.startsWith('/');
-      const url = isRelative ? `${serverBase}${input}` : input;
-      if (!isRelative) {
-        return baseFetch(url as Parameters<typeof fetch>[0], init);
-      }
-      // WASM-issued HTTP calls: attach X-Sigbash-Auth so Flask can forward
-      // credential_id to Moon for ProofSessionToken tracking (Wagner k=1),
-      // AND attach X-Sigbash-Sig so the server's
-      // @require_pop_signature gate accepts the call.
-      const existingHeaders = (init?.headers ?? {}) as Record<string, string>;
-      const method = ((init?.method ?? 'GET') as string).toUpperCase();
-      let bodyBytes: Uint8Array;
-      const body = init?.body;
-      if (body == null) {
-        bodyBytes = new Uint8Array(0);
-      } else if (body instanceof Uint8Array) {
-        bodyBytes = body;
-      } else if (typeof body === 'string') {
-        bodyBytes = new TextEncoder().encode(body);
-      } else if (body instanceof ArrayBuffer) {
-        bodyBytes = new Uint8Array(body);
-      } else {
-        // Don't sign streaming/FormData bodies — fall back to legacy header only.
-        bodyBytes = new Uint8Array(0);
-      }
-      let sigHeader: Record<string, string> = {};
-      try {
-        const sig = await popSignRequest({
-          method,
-          path: input as string,
-          bodyBytes,
-          authHash,
-          popKey: popKeyResolved,
-        });
-        sigHeader = { 'X-Sigbash-Sig': sig.value };
-      } catch {
-        // If signing fails, fall through unsigned — server will reject with 401.
-      }
-      return baseFetch(url as Parameters<typeof fetch>[0], {
-        ...init,
-        headers: {
-          ...existingHeaders,
-          'X-Auth-Hash': authHash,
-          'X-Sigbash-Auth': authHash,
-          ...sigHeader,
-        },
-      });
-    }) as typeof fetch;
+    (globalThis as Record<string, unknown>)['fetch'] = this._buildWasmFetchWrapper(
+      baseFetch, serverBase, authHash, popKeyResolved);
 
     // Derive the policy seed so the WASM can initialize the global SeedManager.
     // The same seed is used in createKey; passing it here ensures signing works
@@ -1930,6 +1954,376 @@ export class SigbashClient {
       pathId: result.path_id,
       satisfiedClause: result.satisfied_clause,
       policyRootHex: result.policy_root_hex,
+    };
+  }
+
+  // =========================================================================
+  // Authorization lane — software-enforced policy attestation.
+  //
+  // These methods authorize an action; they NEVER sign. The artifact they
+  // produce attests that a policy proof verified for a subject commitment —
+  // it is not a Bitcoin signature, is not equivalent to cosigning, and must
+  // never be presented as one.
+  // =========================================================================
+
+  /**
+   * Authorize a PSBT through the authorization lane: preflight, the WASM
+   * proof export, the authorize_issue event, and a full post-decode
+   * cross-check of the returned artifact against the pinned issuer key set
+   * and the export's own commitments.
+   *
+   * Gate order (each step fails closed before the next runs):
+   *   1. disposed / WASM export availability
+   *   2. client-side lifetime bounds (default 900s, [1, 86400])
+   *   3. authorize_preflight (auth, feature gate, capability, TOTP)
+   *   4. network cross-check against the preflight echo
+   *   5. WASM proof export (honest failures mapped to stable reasons)
+   *   6. authorize_issue
+   *   7. post-decode cross-checks (canonical decode, issuer key set,
+   *      subject/policy/burn-set agreement with the export)
+   */
+  async authorizePSBT(options: AuthorizePSBTOptions): Promise<AuthorizationResult> {
+    if (this.#disposed) {
+      throw new ClientDisposedError();
+    }
+
+    const wasmFn = (globalThis as Record<string, unknown>)['SigbashWASM_AuthorizePSBT'] as
+      | ((
+          psbtBase64: string,
+          kmcJSON: string,
+          network: string,
+          paramsJSON: string,
+          arkIntentContextJSON?: string,
+        ) => Promise<WasmAuthorizeResult>)
+      | undefined;
+    if (typeof wasmFn !== 'function') {
+      throw new SigbashSDKError(
+        'SigbashWASM_AuthorizePSBT is not available. ' +
+          'Ensure the WASM binary has been loaded via loadWasm() before calling authorizePSBT().',
+        'WASM_NOT_LOADED'
+      );
+    }
+
+    // Client-side lifetime bounds — the same window the server and the WASM
+    // enforce; caught here before any network round trip is spent.
+    const lifetimeSeconds = options.lifetimeSeconds ?? DEFAULT_LIFETIME_SECONDS;
+    if (!Number.isInteger(lifetimeSeconds) || lifetimeSeconds < 1 || lifetimeSeconds > MAX_LIFETIME_SECONDS) {
+      throw new SigbashSDKError(
+        `lifetime_seconds ${lifetimeSeconds} is outside the accepted range [1, ${MAX_LIFETIME_SECONDS}]`,
+        'INVALID_LIFETIME'
+      );
+    }
+
+    const sdkSocket = this._requireSocket();
+    const authHash = await this._authHash;
+
+    // Step 3: preflight — auth, feature gate, key capability, TOTP.
+    let preflightNetwork: string | undefined;
+    try {
+      const preflight = await sdkSocket.request('authorize_preflight', {
+        auth_hash: authHash,
+        key_id: options.keyId,
+        totp_code: options.totpCode ?? null,
+        access_generation: options.accessGeneration ?? null,
+      }) as { network?: string };
+      preflightNetwork = preflight?.network;
+    } catch (err) {
+      if (err instanceof ServerError) {
+        const serverCode = (err.details as { code?: string } | undefined)?.code;
+        if (serverCode === 'TOTP_INVALID') throw new TOTPInvalidError();
+        if (serverCode === 'TOTP_SETUP_INCOMPLETE') throw new TOTPSetupIncompleteError();
+        if (serverCode === 'TOTP_REQUIRED') throw new TOTPRequiredError();
+        if (serverCode === 'CAPABILITY_NOT_ENABLED') {
+          throw new SigbashSDKError(
+            'Transaction authorization is not enabled for this key or organization',
+            'CAPABILITY_NOT_ENABLED'
+          );
+        }
+      }
+      throw err;
+    }
+
+    // Step 4: network cross-check — the preflight echoes the key's
+    // registered network; a caller-supplied network that disagrees would
+    // prove for the wrong chain parameters.
+    if (preflightNetwork !== undefined && preflightNetwork !== options.network) {
+      throw new SigbashSDKError(
+        `network mismatch: key registered on ${preflightNetwork}, request targets ${options.network}`,
+        'NETWORK_MISMATCH'
+      );
+    }
+
+    await this._prefetchCovenantState(options.kmcJSON, options.psbtBase64, authHash);
+
+    const priorSigbashBaseUrl = (globalThis as Record<string, unknown>)['sigbashBaseUrl'] as string | undefined;
+    const serverBase = this._serverUrl.replace(/\/$/, '');
+    (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = serverBase;
+    const baseFetch = (globalThis as Record<string, unknown>)['fetch'] as typeof fetch;
+    const popKeyResolved = await this._popKey;
+    (globalThis as Record<string, unknown>)['fetch'] = this._buildWasmFetchWrapper(
+      baseFetch, serverBase, authHash, popKeyResolved);
+
+    const workerMgr = getProveWorkerManager();
+    await workerMgr.init();
+    workerMgr.warmCircuits();
+    const workerStatus = workerMgr.getStatus();
+    if (workerStatus.ready && workerStatus.workerCount > 0) {
+      (globalThis as Record<string, unknown>)['_sigbashProveAsync'] = (
+        circuitType: string,
+        witnessBytes: Uint8Array,
+        paramsJSON: string,
+        policyRoot: string,
+        sessionBind: string,
+        publicInputsJSON: string,
+      ) => workerMgr.proveAsync({
+        circuitType: circuitType as 'unified' | 'output_chunk' | 'output_chunk_final',
+        witnessBytes,
+        paramsJSON,
+        policyRoot,
+        sessionBind,
+        publicInputsJSON,
+      });
+      (globalThis as Record<string, unknown>)['_sigbashWitnessAndProveAsync'] = (
+        circuitType: string,
+        witnessInputsJSON: string,
+        paramsJSON: string,
+        policyRoot: string,
+        sessionBind: string,
+        publicInputsJSON: string,
+      ) => workerMgr.witnessAndProveAsync({
+        circuitType: circuitType as 'unified' | 'output_chunk' | 'output_chunk_final',
+        witnessInputsJSON,
+        paramsJSON,
+        policyRoot,
+        sessionBind,
+        publicInputsJSON,
+      });
+    }
+
+    let exportResult: WasmAuthorizeResult;
+    try {
+      exportResult = await wasmFn(
+        options.psbtBase64,
+        options.kmcJSON,
+        options.network,
+        JSON.stringify({ lifetime_seconds: lifetimeSeconds }),
+      );
+    } catch (err) {
+      let errMsg: string;
+      if (err !== null && typeof err === 'object') {
+        const o = err as Record<string, unknown>;
+        errMsg = typeof o['error'] === 'string' ? o['error'] : JSON.stringify(err);
+      } else {
+        errMsg = String(err);
+      }
+      // Honest failures are expected outcomes with stable reasons, not faults.
+      if (errMsg.includes('POLICY_NOT_SATISFIED')) {
+        throw new SigbashSDKError('Policy not satisfied: this PSBT does not satisfy the key policy', 'POLICY_REJECTED');
+      }
+      if (errMsg.includes('INVALID_LIFETIME')) {
+        throw new SigbashSDKError(errMsg, 'INVALID_LIFETIME');
+      }
+      if (errMsg.includes('AUTHZ_SESSION_SHAPE_REJECTED')) {
+        throw new SigbashSDKError(errMsg, 'AUTHZ_SESSION_SHAPE_REJECTED');
+      }
+      throw new SigbashSDKError(`SigbashWASM_AuthorizePSBT failed: ${errMsg}`, 'WASM_ERROR');
+    } finally {
+      (globalThis as Record<string, unknown>)['fetch'] = baseFetch;
+      if (priorSigbashBaseUrl !== undefined) {
+        (globalThis as Record<string, unknown>)['sigbashBaseUrl'] = priorSigbashBaseUrl;
+      } else {
+        delete (globalThis as Record<string, unknown>)['sigbashBaseUrl'];
+      }
+      delete (globalThis as Record<string, unknown>)['sigbashPreFetchedCovenantState'];
+      delete (globalThis as Record<string, unknown>)['_sigbashProveAsync'];
+      delete (globalThis as Record<string, unknown>)['_sigbashWitnessAndProveAsync'];
+    }
+
+    if (!exportResult.success) {
+      const reason = exportResult.reason ?? 'POLICY_NOT_SATISFIED';
+      if (reason === 'POLICY_NOT_SATISFIED') {
+        throw new SigbashSDKError('Policy not satisfied: this PSBT does not satisfy the key policy', 'POLICY_REJECTED');
+      }
+      if (reason === 'INVALID_LIFETIME' || reason === 'AUTHZ_SESSION_SHAPE_REJECTED') {
+        throw new SigbashSDKError(exportResult.detail ?? reason, reason);
+      }
+      throw new SigbashSDKError(exportResult.detail ?? reason, 'WASM_ERROR');
+    }
+    if (!exportResult.envelope_json || !exportResult.subject_commitment_hex) {
+      throw new SigbashSDKError('authorization export returned no envelope', 'WASM_ERROR');
+    }
+
+    // Step 6: issuance. The event carries the envelope and the export's
+    // commitments; the server re-verifies everything through Moon and
+    // returns the issuer-signed artifact.
+    let issued: Record<string, unknown>;
+    try {
+      issued = await sdkSocket.request('authorize_issue', {
+        key_id: options.keyId,
+        policy_root_hex: exportResult.policy_root,
+        subject_commitment_hex: exportResult.subject_commitment_hex,
+        lifetime_seconds: exportResult.lifetime_seconds,
+        proof_bundle: exportResult.envelope_json,
+        access_generation: options.accessGeneration ?? null,
+      }) as Record<string, unknown>;
+    } catch (err) {
+      if (err instanceof ServerError) {
+        const serverCode = (err.details as { code?: string } | undefined)?.code;
+        if (serverCode === 'AUTHORIZATION_ALREADY_CONSUMED') {
+          throw new SigbashSDKError(
+            'This action was already consumed — authorizations and signatures share one stateful allowance',
+            'AUTHORIZATION_ALREADY_CONSUMED'
+          );
+        }
+      }
+      throw err;
+    }
+
+    // Step 7: post-decode cross-checks. Tolerant of the idempotent-replay
+    // response shape (artifact + artifact_signature + replayed only).
+    const artifactB64 = issued['artifact'] as string | undefined;
+    const signatureB64 = issued['artifact_signature'] as string | undefined;
+    if (typeof artifactB64 !== 'string' || typeof signatureB64 !== 'string') {
+      throw new SigbashSDKError('authorize_issue response carries no artifact', 'SERVER_ERROR');
+    }
+    const rawArtifact = base64ToBytes(artifactB64);
+    const rawSignature = base64ToBytes(signatureB64);
+    const fields = decodeAuthorizationArtifactV1(rawArtifact);
+
+    // The issuer key set must be cached to check the signature here.
+    const keySet = cachedIssuerKeySet(options.network);
+    if (keySet) {
+      const issuerKey = issuerKeyForKid(keySet, fields.issuerKid);
+      if (!issuerKey) {
+        throw new SigbashSDKError(`issued artifact carries unknown issuer kid ${fields.issuerKid}`, 'ISSUER_UNKNOWN');
+      }
+      const signatureOk = await verifyAsync(rawSignature, rawArtifact, hexToBytes(issuerKey.publicKeyHex)).catch(() => false);
+      if (!signatureOk) {
+        throw new SigbashSDKError('issued artifact fails its issuer signature check', 'AUTHORIZATION_BAD_SIGNATURE');
+      }
+    } else {
+      await this.fetchIssuerKeySet(options.network).catch(() => undefined);
+    }
+
+    const envelope = parseAuthorizationEnvelope(exportResult.envelope_json);
+    if (bytesToHex(fields.subjectCommitment) !== exportResult.subject_commitment_hex) {
+      throw new SigbashSDKError('artifact subject commitment disagrees with the export', 'SUBJECT_MISMATCH');
+    }
+    if (exportResult.policy_root && bytesToHex(fields.policyRoot) !== exportResult.policy_root) {
+      throw new SigbashSDKError('artifact policy root disagrees with the export', 'SUBJECT_MISMATCH');
+    }
+    const burnPair = (exportResult.burn_commitments ?? []) as string[];
+    if (burnPair.length === 2) {
+      const burnAggregate = authorizationBurnSetAggregateFromEnvelope(envelope);
+      const echoedAggregate = authzBurnSetAggregate(envelope.sessionId, [{
+        positionIndex: 0,
+        n0: hexToBytes(burnPair[0]),
+        n1: hexToBytes(burnPair[1]),
+      }]);
+      if (bytesToHex(burnAggregate) !== bytesToHex(echoedAggregate)) {
+        throw new SigbashSDKError('exported burn commitments disagree with the envelope', 'SUBJECT_MISMATCH');
+      }
+      if (bytesToHex(authorizationPinAggregateFromEnvelope(envelope)) !== exportResult.subject_commitment_hex) {
+        throw new SigbashSDKError('envelope pins do not aggregate to the subject commitment', 'SUBJECT_MISMATCH');
+      }
+    }
+
+    const actionKeyHex = typeof issued['action_key'] === 'string'
+      ? issued['action_key'] as string
+      : bytesToHex(authorizationActionKeyFromBurnPair([burnPair[0], burnPair[1]]));
+
+    return {
+      artifact: fields,
+      rawArtifact,
+      rawSignature,
+      envelope,
+      envelopeJson: exportResult.envelope_json,
+      sessionIdHex: exportResult.session_id_hex ?? '',
+      burnCommitments: [burnPair[0], burnPair[1]],
+      actionKeyHex,
+      pathId: exportResult.path_id ?? '',
+      satisfiedClause: exportResult.satisfied_clause ?? '',
+      nullifierStatus: (exportResult.nullifier_status ?? []) as AuthorizationResult['nullifierStatus'],
+      policyRoot: exportResult.policy_root ?? '',
+    };
+  }
+
+  /**
+   * Fetch and cache the issuer key set for one network.
+   *
+   * @param expectedSha384 - SHA-384 hex pin; production callers set this.
+   */
+  async fetchIssuerKeySet(network: NetworkId, expectedSha384?: string): Promise<LoadedIssuerKeySet> {
+    return loadIssuerKeySet({ serverUrl: this._serverUrl, network, expectedSha384 });
+  }
+
+  /**
+   * Offline verification of a received authorization — ADR-033 §16.1.
+   *
+   * Never burns state and never talks to the server when the issuer key set
+   * is already cached. Without the salt-bearing context (or the envelope,
+   * or the raw subject) the subject check cannot run and the result is
+   * fail-closed SUBJECT_CHECK_UNAVAILABLE — there is no acceptance path
+   * that skips it.
+   */
+  async verifyAuthorization(options: VerifyAuthorizationClientOptions): Promise<VerifyAuthorizationClientResult> {
+    let issuerKeySet = options.issuerKeySet;
+    if (!issuerKeySet) {
+      issuerKeySet = cachedIssuerKeySet(options.network) ??
+        await this.fetchIssuerKeySet(options.network).catch(() => undefined);
+    }
+    const salt = typeof options.salt === 'string' ? hexToBytes(options.salt) : options.salt;
+    return verifyAuthorization({
+      authorization: options.authorization,
+      subject: options.subject ?? (options.psbtBase64
+        ? Uint8Array.from(atob(options.psbtBase64), c => c.charCodeAt(0))
+        : undefined),
+      envelope: options.envelope,
+      network: options.network,
+      issuerKeySet,
+      salt,
+      expectedScope: typeof options.expectedScope === 'string' ? hexToBytes(options.expectedScope) : options.expectedScope,
+      credential: options.credential,
+      expectedPolicyRoot: options.expectedPolicyRoot,
+      now: options.now,
+      acceptedStrengths: options.acceptedStrengths,
+    });
+  }
+
+  /**
+   * Server-assisted consumption status for one authorized action (ADR-033
+   * §17.1). Offline verification cannot detect prior consumption — salted
+   * nullifiers are uncomputable without key material — so this helper asks
+   * the server, keyed on the action key the burn model consumes.
+   */
+  async getAuthorizationStatus(options: GetAuthorizationStatusOptions): Promise<GetAuthorizationStatusResult> {
+    const burnPair: readonly string[] | undefined =
+      options.burnCommitments ?? options.authorization?.burnCommitments;
+    const actionKeyHex =
+      options.actionKey ??
+      options.authorization?.actionKeyHex ??
+      (burnPair
+        ? bytesToHex(authorizationActionKeyFromBurnPair(
+            [burnPair[0], burnPair[1]] as [string, string]))
+        : undefined);
+    if (!actionKeyHex) {
+      throw new SigbashSDKError(
+        'getAuthorizationStatus requires an actionKey, burnCommitments, or a prior authorization result',
+        'MISSING_FIELD'
+      );
+    }
+    const sdkSocket = this._requireSocket();
+    const authHash = await this._authHash;
+    const response = await sdkSocket.request('authorization_status', {
+      auth_hash: authHash,
+      action_key: actionKeyHex,
+    }) as { status?: string; issuer_kid?: string; issued_at?: number; expires_at?: number };
+    return {
+      status: response?.status === 'burned' ? 'burned' : 'not_found',
+      issuerKid: response?.issuer_kid,
+      issuedAt: response?.issued_at,
+      expiresAt: response?.expires_at,
+      actionKeyHex,
     };
   }
 
@@ -2467,6 +2861,73 @@ export class SigbashClient {
   }
 
   /**
+   * Build the fetch wrapper the WASM pipeline runs under: relative-URL
+   * resolution against the server origin plus the auth and PoP signature
+   * headers the WASM-issued HTTP calls require. Restored by the caller's
+   * finally block.
+   */
+  private _buildWasmFetchWrapper(
+    baseFetch: typeof fetch,
+    serverBase: string,
+    authHash: string,
+    popKey: PopKey,
+  ): typeof fetch {
+    return (async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1]
+    ) => {
+          const isRelative = typeof input === 'string' && input.startsWith('/');
+          const url = isRelative ? `${serverBase}${input}` : input;
+          if (!isRelative) {
+            return baseFetch(url as Parameters<typeof fetch>[0], init);
+          }
+          // WASM-issued HTTP calls: attach X-Sigbash-Auth so Flask can forward
+          // credential_id to Moon for ProofSessionToken tracking (Wagner k=1),
+          // AND attach X-Sigbash-Sig so the server's
+          // @require_pop_signature gate accepts the call.
+          const existingHeaders = (init?.headers ?? {}) as Record<string, string>;
+          const method = ((init?.method ?? 'GET') as string).toUpperCase();
+          let bodyBytes: Uint8Array;
+          const body = init?.body;
+          if (body == null) {
+            bodyBytes = new Uint8Array(0);
+          } else if (body instanceof Uint8Array) {
+            bodyBytes = body;
+          } else if (typeof body === 'string') {
+            bodyBytes = new TextEncoder().encode(body);
+          } else if (body instanceof ArrayBuffer) {
+            bodyBytes = new Uint8Array(body);
+          } else {
+            // Don't sign streaming/FormData bodies — fall back to legacy header only.
+            bodyBytes = new Uint8Array(0);
+          }
+          let sigHeader: Record<string, string> = {};
+          try {
+            const sig = await popSignRequest({
+              method,
+              path: input as string,
+              bodyBytes,
+              authHash,
+              popKey,
+            });
+            sigHeader = { 'X-Sigbash-Sig': sig.value };
+          } catch {
+            // If signing fails, fall through unsigned — server will reject with 401.
+          }
+          return baseFetch(url as Parameters<typeof fetch>[0], {
+            ...init,
+            headers: {
+              ...existingHeaders,
+              'X-Auth-Hash': authHash,
+              'X-Sigbash-Auth': authHash,
+              ...sigHeader,
+            },
+          });
+
+    }) as typeof fetch;
+  }
+
+  /**
    * Return (lazily creating) a Socket.IO connection to /api/v2/musig2.
    *
    * The Go WASM signing pipeline communicates with the server exclusively on
@@ -2847,7 +3308,8 @@ export class SigbashClient {
 
     // Decrypt the KMC using the recovery KEK path.
     const envelope = JSON.parse(response.encrypted_key_material) as KMCEnvelope;
-    const kmc = await decryptKMCFromRecoveryKEK(envelope, wrappedCEK, recoveryKEKBytes);
+    const kmc = normalizeKeyModelMetadata(
+      await decryptKMCFromRecoveryKEK(envelope, wrappedCEK, recoveryKEKBytes));
     const kmcJSON = JSON.stringify(kmc);
 
     const network = (response.network as GetKeyResult['network']) ?? 'signet';
@@ -2965,7 +3427,8 @@ export class SigbashClient {
     );
 
     const envelope = JSON.parse(data.encrypted_key_material) as KMCEnvelope;
-    const kmc = await decryptKMCFromRecoveryKEK(envelope, wrappedCEK, recoveryKEKBytes);
+    const kmc = normalizeKeyModelMetadata(
+      await decryptKMCFromRecoveryKEK(envelope, wrappedCEK, recoveryKEKBytes));
     const kmcJSON = JSON.stringify(kmc);
     const network = (data.network as GetKeyResult['network']) ?? 'signet';
 

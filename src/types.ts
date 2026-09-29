@@ -2,6 +2,17 @@
  * TypeScript type definitions for Sigbash SDK
  */
 
+import type { NetworkId } from './contracts/network';
+import type { AuthorizationArtifactFields } from './contracts/authorizationArtifact';
+import type { AuthorizationEnvelope } from './authorization/envelope';
+import type { LoadedIssuerKeySet } from './authorization/issuerKeySet';
+import type { AuthorizationCredentialContext } from './authorization/verify';
+import type {
+  AuthorizationKeyRole,
+  KeyCapability,
+  KeyOrigin,
+} from './authorization/keyModel';
+
 /**
  * Bitcoin network for signing operations.
  */
@@ -233,6 +244,24 @@ export interface KeyListItem {
   bip328Xpub: string;
   /** Compiled POET policy as a parsed JSON object. */
   poetJSON: object;
+  /**
+   * Key-model origin (container metadata). Undefined on the raw server
+   * listing; listKeys() populates it client-side after opening each
+   * container.
+   */
+  origin?: KeyOrigin;
+  /**
+   * Key capabilities (container metadata). Undefined on the raw server
+   * listing; listKeys() populates it client-side.
+   */
+  capabilities?: KeyCapability[];
+  /**
+   * Display discriminator from capabilities (origin breaks ties only for
+   * containers with no declared capability). Undefined on the raw server
+   * listing; listKeys() populates it client-side. Legacy containers
+   * display as signing keys.
+   */
+  keyRole?: AuthorizationKeyRole;
 }
 
 export interface KeySummary {
@@ -266,6 +295,24 @@ export interface KeySummary {
    * Only present when updateable=true and policyUpdateCount > 0.
    */
   policyLastUpdated?: string;
+  /**
+   * Who generated the key material — container metadata, visible only after
+   * the client opens the KMC container; the server-side listing never
+   * carries it. Legacy containers default to 'sigbash'.
+   */
+  origin: KeyOrigin;
+  /**
+   * Structured capabilities the key advertises (container metadata, same
+   * visibility boundary as origin). Legacy containers default to
+   * ['bitcoin_sign'].
+   */
+  capabilities: KeyCapability[];
+  /**
+   * Display discriminator derived from capabilities (origin breaks ties
+   * only for containers with no declared capability). Legacy containers
+   * display as signing keys.
+   */
+  keyRole: AuthorizationKeyRole;
 }
 
 /**
@@ -623,4 +670,123 @@ export interface AuditLogsOptions {
   beforeTimestamp?: number;
   /** Filter by specific credential hash. */
   credentialHash?: string;
+}
+
+/**
+ * Options for the authorizePSBT() SDK method — the software-enforced
+ * authorization lane. This is NOT signing and produces no Bitcoin
+ * signature; the returned artifact attests policy compliance only.
+ */
+export interface AuthorizePSBTOptions {
+  /** Key identifier returned by createKey(). */
+  keyId: string;
+  /** Base64-encoded PSBT to authorize. */
+  psbtBase64: string;
+  /** Decrypted KMC string from getKey().kmcJSON. */
+  kmcJSON: string;
+  /** Bitcoin network — must match the key's registered network. */
+  network: NetworkId;
+  /** Requested authorization lifetime in seconds (default 900, max 86400). */
+  lifetimeSeconds?: number;
+  /** TOTP code for keys with require2FA. */
+  totpCode?: string;
+  /** Access generation for principal-posture credentials. */
+  accessGeneration?: number;
+  /** Optional WASM progress callback. */
+  progressCallback?: (step: string, message: string) => void;
+}
+
+/** The issued authorization artifact plus the material an enforcer needs. */
+export interface AuthorizationResult {
+  /** Decoded artifact fields (re-encode-verified at issuance). */
+  artifact: AuthorizationArtifactFields;
+  /** The exact received artifact encoding (the signed message). */
+  rawArtifact: Uint8Array;
+  /** The issuer's Ed25519 signature over rawArtifact. */
+  rawSignature: Uint8Array;
+  /** The parsed proof envelope backing the subject commitment. */
+  envelope: AuthorizationEnvelope;
+  /** The envelope's raw JSON text (the issuance wire object). */
+  envelopeJson: string;
+  /** The proof session id (hex). */
+  sessionIdHex: string;
+  /** The server-echoed burn pair [N0hex, N1hex]. */
+  burnCommitments: [string, string];
+  /** The action key hex — the consumption-status lookup key. */
+  actionKeyHex: string;
+  /** The satisfied policy path id. */
+  pathId: string;
+  /** The satisfied policy clause description. */
+  satisfiedClause: string;
+  /** Per-position advisory nullifier availability from the export. */
+  nullifierStatus: Array<{
+    input_index: number;
+    available: boolean;
+    message: string;
+  }>;
+  /** The policy root the artifact was issued under (hex). */
+  policyRoot: string;
+}
+
+/**
+ * Options for the offline verifyAuthorization() SDK method.
+ */
+export interface VerifyAuthorizationClientOptions {
+  /** The artifact as received (a prior AuthorizationResult works). */
+  authorization: {
+    rawArtifact: Uint8Array;
+    rawSignature: Uint8Array;
+  };
+  /** The raw subject the enforcer is about to execute (PSBT bytes). */
+  subject?: Uint8Array;
+  /** Convenience: base64 PSBT, used when `subject` is omitted. */
+  psbtBase64?: string;
+  /** The proof envelope JSON or parsed envelope (a prior result works). */
+  envelope?: AuthorizationEnvelope | string;
+  network: NetworkId;
+  /** A pre-loaded issuer key set; loaded from the server when omitted. */
+  issuerKeySet?: LoadedIssuerKeySet;
+  /** SHA-384 pin when the key set must be fetched. */
+  expectedSha384?: string;
+  /** The client-held policy salt (hex or bytes) for the stage-2 check. */
+  salt?: Uint8Array | string;
+  /** Expected scope digest (hex or bytes), or the credential context. */
+  expectedScope?: Uint8Array | string;
+  credential?: AuthorizationCredentialContext;
+  /** The policy root the enforcer requires (hex or bytes). */
+  expectedPolicyRoot?: Uint8Array | string;
+  /** The enforcer's clock, unix seconds. */
+  now?: number;
+  /** The artifact strengths this enforcer accepts. */
+  acceptedStrengths?: string[];
+}
+
+export interface VerifyAuthorizationClientResult {
+  valid: boolean;
+  reason?: string;
+  detail?: Record<string, string>;
+}
+
+/**
+ * Options for getAuthorizationStatus(): exactly one of the three key
+ * material sources is required.
+ */
+/** The consumption-status answer for one action key. */
+export interface GetAuthorizationStatusResult {
+  /** 'burned' — the action was consumed by an issuance; 'not_found' otherwise. */
+  status: 'not_found' | 'burned';
+  issuerKid?: string;
+  issuedAt?: number;
+  expiresAt?: number;
+  /** The action key the lookup was keyed on (hex). */
+  actionKeyHex: string;
+}
+
+export interface GetAuthorizationStatusOptions {
+  /** A prior AuthorizationResult (uses its action key or burn pair). */
+  authorization?: { actionKeyHex?: string; burnCommitments?: readonly string[] };
+  /** The echoed burn pair [N0hex, N1hex] from issuance. */
+  burnCommitments?: readonly string[];
+  /** The action key hex directly. */
+  actionKey?: string;
 }

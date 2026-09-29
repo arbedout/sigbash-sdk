@@ -45,7 +45,7 @@ export interface WasmLoaderResult {
 /**
  * Compute SHA-384 hash of ArrayBuffer
  */
-async function computeSHA384(buffer: ArrayBuffer): Promise<string> {
+export async function computeSHA384(buffer: ArrayBuffer): Promise<string> {
   const env = detectEnvironment();
 
   if (env === 'browser' || env === 'electron') {
@@ -77,7 +77,7 @@ async function computeSHA384(buffer: ArrayBuffer): Promise<string> {
  * Constant-time string comparison to prevent timing attacks
  * Prevents attackers from reconstructing expected hash byte-by-byte
  */
-function constantTimeCompare(a: string, b: string): boolean {
+export function constantTimeCompare(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let result = 0;
   for (let i = 0; i < a.length; i++) {
