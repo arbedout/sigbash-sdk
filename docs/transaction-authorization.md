@@ -268,6 +268,7 @@ commitment.
 
 ## Related
 
+- [authorization.md](authorization.md) — enforcement strengths, verification modes, auditability, and threat boundaries.
 - [signing.md](signing.md) — the cryptographically enforced path.
 - [verifying.md](verifying.md) — proof-bundle verification for the signing lane.
 - [stateful-constraints.md](stateful-constraints.md) — the shared burn allowance.
