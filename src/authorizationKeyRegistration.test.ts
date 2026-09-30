@@ -31,6 +31,15 @@ interface RecordedRequest {
 const mockRequest = jest.fn();
 const mockRawEmit = jest.fn();
 
+/**
+ * Connection state a newly constructed fake socket reports. Tests that pin
+ * handshake ordering flip this to false so the client must wait for the
+ * connect event before proceeding; the default true models the connected
+ * socket the immediate request() semantics already imply.
+ */
+let mockSocketConnectedOnCreate = true;
+const mockRawSockets: Record<string, unknown>[] = [];
+
 interface ListenerEntry {
   event: string;
   fn: (payload: unknown) => void;
@@ -44,6 +53,7 @@ jest.mock('./socket', () => ({
     rawSocket: Record<string, unknown>;
     constructor() {
       this.rawSocket = {
+        connected: mockSocketConnectedOnCreate,
         on: (event: string, fn: (payload: unknown) => void) => {
           socketListeners.push({ event, fn, once: false });
         },
@@ -57,6 +67,7 @@ jest.mock('./socket', () => ({
         emit: mockRawEmit,
         __sigbashEmitWrapped__: false,
       };
+      mockRawSockets.push(this.rawSocket);
     }
     async request(event: string, payload: unknown) {
       return mockRequest(event, payload);
@@ -224,6 +235,8 @@ beforeEach(() => {
   mockRequest.mockReset();
   mockRawEmit.mockReset();
   socketListeners.length = 0;
+  mockSocketConnectedOnCreate = true;
+  mockRawSockets.length = 0;
   buildKMCInput = undefined;
   aggregateKMCInput = undefined;
 
@@ -430,6 +443,96 @@ describe('identifier-shape registration (descriptor_derived)', () => {
 // ---------------------------------------------------------------------------
 // Signing-shape registration: byte-identity pin
 // ---------------------------------------------------------------------------
+
+// The /api/v2/signing_key fetch is PoP-verified over REST, and the PoP
+// pubkey only exists server-side once the socket connect handshake has
+// bootstrapped it (first-user auto-registration persists it at connect
+// time). These tests pin that the handshake strictly precedes the fetch —
+// the failure mode on a fresh org is a deterministic PoP rejection (401)
+// when the fetch runs first.
+describe('authorization registration ordering (handshake before REST fetch)', () => {
+  it('awaits the socket connect handshake before fetching server signing key info', async () => {
+    // Start the socket disconnected: the client must wait for the connect
+    // event before any REST traffic.
+    mockSocketConnectedOnCreate = false;
+    const order: string[] = [];
+    global.fetch = jest.fn(async () => {
+      order.push('rest_fetch');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          fingerprint: SERVER_FINGERPRINT,
+          base_path: SERVER_BASE_PATH,
+          server_signing_public_key: SERVER_DESCRIPTOR_XPUB,
+          network: 'signet',
+        }),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const client = makeClient();
+    const done = client.createKey({
+      policy: minimalPolicy,
+      network: 'signet',
+      require2FA: false,
+      keyScheme: 'descriptor_derived',
+      keyIdentifier: 'ordering-probe-1',
+    });
+
+    // Let the flow reach the handshake wait: the socket then exists but is
+    // not connected, and no REST fetch may have been issued.
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(mockRawSockets).toHaveLength(1);
+    expect(mockRawSockets[0]['connected']).toBe(false);
+    (mockRawSockets[0]['on'] as (event: string, fn: () => void) => void)(
+      'connect', () => order.push('handshake'));
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(order).toEqual([]);
+
+    setImmediate(() => emitTo('connect', undefined));
+    const result = await done;
+    expect(order).toEqual(['handshake', 'rest_fetch']);
+
+    const payload = registerPayload();
+    expect(payload['key_scheme']).toBe('descriptor_derived');
+    expect(result.keyId).toBe('0');
+  });
+
+  it('does not issue the REST fetch while the handshake is outstanding', async () => {
+    mockSocketConnectedOnCreate = false;
+    const fetchSpy = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        fingerprint: SERVER_FINGERPRINT,
+        base_path: SERVER_BASE_PATH,
+        server_signing_public_key: SERVER_DESCRIPTOR_XPUB,
+        network: 'signet',
+      }),
+    }) as unknown as Response) as unknown as typeof fetch;
+    global.fetch = fetchSpy;
+
+    const client = makeClient();
+    const done = client.createKey({
+      policy: minimalPolicy,
+      network: 'signet',
+      require2FA: false,
+      keyScheme: 'descriptor_derived',
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 25));
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // Complete the handshake; the flow then proceeds to the fetch and the
+    // full registration.
+    emitTo('connect', undefined);
+    await done;
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(registerPayload()['key_scheme']).toBe('descriptor_derived');
+  });
+});
 
 describe('signing-shape registration', () => {
   it('the undeclared payload is byte-identical to the declared one minus its declaration fields', async () => {

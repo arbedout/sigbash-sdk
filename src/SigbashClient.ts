@@ -1563,6 +1563,48 @@ export class SigbashClient {
   }
 
   /**
+   * Resolve once the SDK-namespace socket has completed its connect
+   * handshake. That handshake is the only path that bootstrap-registers the
+   * caller's PoP pubkey server-side (a fresh org's first user is persisted
+   * with its pubkey at connect time), so any REST call verified by PoP
+   * signature must wait for it: an unregistered pubkey fails PoP
+   * verification before the identity exists server-side at all.
+   */
+  private _awaitSocketHandshake(timeoutMs: number = 15000): Promise<void> {
+    const rawSocket = this._requireSocket().rawSocket;
+    if (rawSocket.connected) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new SigbashSDKError(
+          'timed out waiting for the socket handshake',
+          'SERVER_ERROR'
+        ));
+      }, timeoutMs);
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        rawSocket.off('connect', onConnect);
+        rawSocket.off('connect_error', onConnectError);
+      };
+      const onConnect = (): void => {
+        cleanup();
+        resolve();
+      };
+      const onConnectError = (err: Error): void => {
+        cleanup();
+        reject(new SigbashSDKError(
+          `socket handshake failed: ${String(err?.message ?? err)}`,
+          'SERVER_ERROR'
+        ));
+      };
+      rawSocket.once('connect', onConnect);
+      rawSocket.once('connect_error', onConnectError);
+    });
+  }
+
+  /**
    * Authorization-only registration path for identifier-scheme keys.
    *
    * No MuSig2 key request is made and no client-key commitment fields ride
@@ -1597,7 +1639,11 @@ export class SigbashClient {
     // Server metadata participant: a read-only /api/v2/signing_key fetch —
     // no key request, no MuSig2 session. Fingerprint, base path, and master
     // xpub become the container's server metadata; no server share ever
-    // enters the container's aggregate key.
+    // enters the container's aggregate key. The fetch is PoP-verified over
+    // REST, and the handshake that registers the PoP pubkey must have
+    // completed first — on a fresh org the pubkey does not exist server-side
+    // until the connect handshake persists it.
+    await this._awaitSocketHandshake();
     const keyInfoResponse = await this._authedFetch(
       `/api/v2/signing_key?network=${encodeURIComponent(options.network)}`
     );
