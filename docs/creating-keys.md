@@ -87,6 +87,55 @@ await client.createKey({ policy, network: 'signet', require2FA: false });
 The full operator and condition vocabulary is documented in
 [policy-reference.md](policy-reference.md).
 
+---
+
+## Authorization-only keys
+
+`createKey()` also registers a key that can **authorize** but cannot sign —
+an identity whose container carries no MuSig2 aggregate material. Pass an
+identifier `keyScheme`:
+
+```typescript
+const { keyId, keyRole } = await client.createKey({
+  policy,
+  network: 'signet',
+  require2FA: false,
+  keyScheme: 'client_chosen_identifier',  // or 'descriptor_derived'
+  keyIdentifier: 'treasury-daily-ops',    // optional; sealed, never sent in clear
+});
+// keyRole === 'authorization_only'
+```
+
+| `keyScheme` | Key shape |
+|---|---|
+| *(omitted)* | Legacy signing key — the registration payload is byte-identical to before this option existed |
+| `'secp256k1_schnorr'` | Declared signing key (MuSig2 aggregate material) |
+| `'descriptor_derived'` | Authorization-only identity, descriptor-derived form |
+| `'client_chosen_identifier'` | Authorization-only identity, client-chosen identifier form |
+
+What changes for an identifier scheme:
+
+- **Registration without aggregate material.** The container's aggregate key
+  is the client's own key (a BIP-86 single-key tweak) plus a server *metadata*
+  participant — no server key share is fetched and no MuSig2 session opens.
+  The registration payload omits `client_keys`, `client_key_commitment_h1`,
+  and `client_key_hash` entirely; the server refuses those signing-shaped
+  fields with `SIGNING_FIELDS_ON_IDENTIFIER_KEY` if a caller sends them.
+- **The container declares its key model.** The sealed envelope carries
+  `scheme`, `origin`, and `capabilities: ['transaction_authorize']`. The
+  server mirrors the declaration server-side. `keyIdentifier`, when given, is
+  sealed inside the envelope and never appears in the clear on the wire.
+- **Hash-derived identity is unchanged.** The key's identity, scope, and the
+  whole authorization lane work exactly as for any other key — see
+  [transaction-authorization.md](transaction-authorization.md).
+- **Signing refuses structurally.** `signPSBT()` on such a key throws
+  `KEY_NOT_SIGNING_CAPABLE` client-side before any network traffic, and the
+  server refuses it with the same code at signing admission. Use
+  `authorizePSBT()` instead.
+
+An unknown `keyScheme` is rejected client-side with `INVALID_KEY_SCHEME`
+before any network round trip.
+
 > **Next step:** whichever construction path you used, `createKey()` returns
 > a `keyId`, a `bip328Xpub`, and a `bip328Descriptor`. Use the `keyId` (plus
 > `kmcJSON` from `getKey(keyId, { verbose: true })`) for signing — see

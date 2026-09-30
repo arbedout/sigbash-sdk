@@ -11,6 +11,7 @@ import type {
   AuthorizationKeyRole,
   KeyCapability,
   KeyOrigin,
+  KeyScheme,
 } from './authorization/keyModel';
 
 /**
@@ -211,6 +212,24 @@ export interface CreateKeyOptions {
    * When true, marks the key as admin-updateable (policy may be changed via updatePolicy).
    */
   updateable?: boolean;
+
+  /**
+   * Declared key scheme, sent to the server as the key_scheme registration
+   * declaration. When omitted the registration is the legacy signing shape,
+   * byte-identical to previous SDK versions. The identifier schemes
+   * ('descriptor_derived', 'client_chosen_identifier') register an
+   * authorization-only key: no MuSig2 key request, no client_keys /
+   * client_key_commitment_h1 / client_key_hash on the payload, and
+   * signPSBT() refuses the key structurally.
+   */
+  keyScheme?: KeyScheme;
+
+  /**
+   * Client-chosen identifier for a 'client_chosen_identifier' key. Sealed
+   * into the container as additive metadata — never sent to the server in
+   * the clear. Ignored for signing-scheme registrations.
+   */
+  keyIdentifier?: string;
 }
 
 /**

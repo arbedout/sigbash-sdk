@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Generalized key registration for authorization-only identities.**
+  `createKey()` accepts `keyScheme` (`'descriptor_derived'` or
+  `'client_chosen_identifier'`) to register a key whose container carries no
+  MuSig2 aggregate material: the aggregate key is the client's own key with a
+  server metadata participant, the registration payload omits
+  `client_keys` / `client_key_commitment_h1` / `client_key_hash`, and an
+  optional `keyIdentifier` is sealed inside the envelope — never sent in the
+  clear. The declared key model (`scheme`, `origin`,
+  `capabilities: ['transaction_authorize']`) rides the container as additive
+  metadata and is mirrored server-side; the key's hash-derived identity,
+  scope, and the whole authorization lane are unchanged.
+- **Structural signing refusal for authorization-only keys.**
+  `signPSBT()` throws `KEY_NOT_SIGNING_CAPABLE` client-side before any
+  network traffic, and the server refuses the same key with the same code at
+  both signing admission layers (SDK preflight and blind-signing input) —
+  the missing aggregate material can no longer surface as a deep ceremony
+  failure. New registration refusal codes `INVALID_KEY_SCHEME`,
+  `INVALID_KEY_ORIGIN`, `INVALID_KEY_CAPABILITY`, and
+  `SIGNING_FIELDS_ON_IDENTIFIER_KEY` are pinned by the
+  `key_model_registration_v1` golden vectors.
+- Docs: `docs/creating-keys.md § Authorization-only keys`,
+  the key-roles section and `KEY_NOT_SIGNING_CAPABLE` entry in
+  `docs/transaction-authorization.md`, and the updated error tables in
+  `docs/error-handling.md`.
+
 - **Transaction authorization: `SigbashClient.authorizePSBT()`,
   `verifyAuthorization()`, `getAuthorizationStatus()`, and the read-only
   `verifyPSBT()` dry run.** A client proves a PSBT satisfies its policy

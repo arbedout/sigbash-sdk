@@ -36,6 +36,7 @@ import type {
   VerifyAuthorizationClientResult,
   GetAuthorizationStatusOptions,
   GetAuthorizationStatusResult,
+  Network,
 } from './types';
 import type { NetworkId } from './contracts/network';
 import type { LoadedIssuerKeySet } from './authorization/issuerKeySet';
@@ -113,10 +114,14 @@ import type {
 import type { PolicyKeyAccessStatusV1 } from './contracts';
 import {
   authorizationKeyRoleOf,
+  isIdentifierKeyScheme,
+  keyCanSign,
   keyModelMetadataOf,
+  KNOWN_KEY_SCHEMES,
   normalizeKeyModelMetadata,
   stampKeyModelMetadata,
 } from './authorization/keyModel';
+import type { KeyScheme } from './authorization/keyModel';
 import { SigbashSocket } from './socket';
 import { getProveWorkerManager } from './prove-worker-manager';
 import {
@@ -1190,36 +1195,30 @@ export class SigbashClient {
     validateReqkeyDescriptorConstraints(poetPolicy?.policy);
 
     // ---------------------------------------------------------------------------
+    // Key-model declaration: a declared identifier scheme routes the
+    // registration to the authorization-only path — no MuSig2 key request,
+    // no client-key commitment fields, and the container's aggregate material
+    // is the client's own key. An omitted declaration keeps the signing path
+    // below on its exact historical payload.
+    // ---------------------------------------------------------------------------
+    if (options.keyScheme !== undefined) {
+      if (!KNOWN_KEY_SCHEMES.includes(options.keyScheme)) {
+        throw new SigbashSDKError(
+          `keyScheme '${String(options.keyScheme)}' is outside the known set {${KNOWN_KEY_SCHEMES.join(', ')}}`,
+          'INVALID_KEY_SCHEME'
+        );
+      }
+      if (isIdentifierKeyScheme(options.keyScheme)) {
+        return this._createAuthorizationKey(options, poetPolicy);
+      }
+    }
+
+    // ---------------------------------------------------------------------------
     // Step 1 — Ensure client MuSig2 keypair is initialised.
     // For the auto-gen path (no BYO key) call SigbashWASM_GenerateClientKeyMaterial
     // to produce a fresh random key and compute commitment fields.
     // ---------------------------------------------------------------------------
-    if (this.#commitmentH1 === '') {
-      const wasmKeyFn = (globalThis as Record<string, unknown>)[
-        'SigbashWASM_GenerateClientKeyMaterial'
-      ] as ((input: string) => string) | undefined;
-      if (typeof wasmKeyFn !== 'function') {
-        throw new SigbashSDKError(
-          'WASM not loaded — call loadWasm() before createKey()',
-          'WASM_NOT_LOADED'
-        );
-      }
-      const kmResult = JSON.parse(wasmKeyFn('{}')) as {
-        private_key_hex?: string;
-        public_key_hex?: string;
-        xonly_pubkey_hex?: string;
-        h1_hex?: string;
-        key_hash_hex?: string;
-        error?: string;
-      };
-      if (kmResult.error) {
-        throw new SigbashSDKError(`Key generation failed: ${kmResult.error}`, 'KEY_GEN_FAILED');
-      }
-      const fromHex = (s: string) => Uint8Array.from(s.match(/.{2}/g)!.map(b => parseInt(b, 16)));
-      this.#musig2PrivateKey = fromHex(kmResult.private_key_hex!);
-      this.#commitmentH1 = kmResult.h1_hex!;
-      this.#keyHash = kmResult.key_hash_hex!;
-    }
+    this._ensureClientKeypair();
 
     const authHash = await this._authHash;
     const apikeyHash = await this._apikeyHash;
@@ -1300,38 +1299,10 @@ export class SigbashClient {
     // Ensures POET validation errors surface here and that the policy_root stored
     // on the server is identical regardless of credential type.
     // ---------------------------------------------------------------------------
-    const compileFn = (globalThis as Record<string, unknown>)[
-      'SigbashWASM_CompilePOETPolicy'
-    ] as ((input: string) => string) | undefined;
-    if (typeof compileFn !== 'function') {
-      throw new SigbashSDKError(
-        'WASM not loaded — call loadWasm() before createKey()',
-        'WASM_NOT_LOADED'
-      );
-    }
+    const { compiledPolicyJSON, policyRoot: compiledRoot, seedHex } =
+      await this._compilePoetPolicy(poetPolicy, options.network, authHash);
 
-    // Derive a deterministic 32-byte seed for the WASM SeedManager.
-    // HKDF(apiKey || userKey || userSecretKey, salt='sigbash-policy-salt-v1',
-    //      info='poet-policy-compilation-salt') — stable per credential triplet.
-    const seedHex = await derivePolicySalt(this._apiKey, this._userKey, this._userSecretKey);
-
-    const compileResult = JSON.parse(
-      compileFn(JSON.stringify({
-        policy: JSON.stringify(poetPolicy),
-        network: options.network,
-        seed_hex: seedHex,
-        credential_id: authHash,
-      }))
-    ) as { policy_root?: string; compiled_policy_json?: string; error?: string };
-
-    if (compileResult.error) {
-      throw new PolicyCompileError(compileResult.error);
-    }
-
-    let policyRoot = compileResult.policy_root!;
-    // Use the processed policy JSON produced by the Go compiler (nullifier configs
-    // and address data have been extracted and normalised).
-    const compiledPolicyJSON = compileResult.compiled_policy_json ?? JSON.stringify(poetPolicy);
+    let policyRoot = compiledRoot;
 
     // ---------------------------------------------------------------------------
     // Step 4 — Aggregate keys and build the full KMC via Go WASM.
@@ -1448,6 +1419,16 @@ export class SigbashClient {
         client_key_commitment_h1: this.#commitmentH1,
         client_key_hash: this.#keyHash,
         enc_kek2,
+        // An explicitly declared signing scheme rides the same payload with
+        // its declaration; with no declaration the payload stays byte-identical
+        // to previous SDK versions.
+        ...(options.keyScheme !== undefined
+          ? {
+              key_scheme: options.keyScheme,
+              key_origin: 'sigbash',
+              key_capabilities: ['bitcoin_sign'],
+            }
+          : {}),
         ...(options.updateable === true ? { updateable: true } : {}),
       });
     } catch (err) {
@@ -1494,6 +1475,299 @@ export class SigbashClient {
       keyIndex,
       p2trAddress: aggregateResult.p2tr_address,
       aggregatePubKeyHex: aggregateResult.aggregate_public_key_hex,
+      bip328Xpub,
+      bip328Descriptor,
+    };
+  }
+
+  /**
+   * Ensure the client MuSig2 keypair is initialised.
+   * For the auto-gen path (no BYO key) call SigbashWASM_GenerateClientKeyMaterial
+   * to produce a fresh random key and compute commitment fields.
+   */
+  private _ensureClientKeypair(): void {
+    if (this.#commitmentH1 !== '') {
+      return;
+    }
+    const wasmKeyFn = (globalThis as Record<string, unknown>)[
+      'SigbashWASM_GenerateClientKeyMaterial'
+    ] as ((input: string) => string) | undefined;
+    if (typeof wasmKeyFn !== 'function') {
+      throw new SigbashSDKError(
+        'WASM not loaded — call loadWasm() before createKey()',
+        'WASM_NOT_LOADED'
+      );
+    }
+    const kmResult = JSON.parse(wasmKeyFn('{}')) as {
+      private_key_hex?: string;
+      public_key_hex?: string;
+      xonly_pubkey_hex?: string;
+      h1_hex?: string;
+      key_hash_hex?: string;
+      error?: string;
+    };
+    if (kmResult.error) {
+      throw new SigbashSDKError(`Key generation failed: ${kmResult.error}`, 'KEY_GEN_FAILED');
+    }
+    const fromHex = (s: string) => Uint8Array.from(s.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+    this.#musig2PrivateKey = fromHex(kmResult.private_key_hex!);
+    this.#commitmentH1 = kmResult.h1_hex!;
+    this.#keyHash = kmResult.key_hash_hex!;
+  }
+
+  /**
+   * Compile the POET policy via Go WASM (same as the web frontend).
+   * Ensures POET validation errors surface here and that the policy_root stored
+   * on the server is identical regardless of credential type.
+   */
+  private async _compilePoetPolicy(
+    poetPolicy: POETPolicy,
+    network: Network,
+    authHash: string
+  ): Promise<{ compiledPolicyJSON: string; policyRoot: string; seedHex: string }> {
+    const compileFn = (globalThis as Record<string, unknown>)[
+      'SigbashWASM_CompilePOETPolicy'
+    ] as ((input: string) => string) | undefined;
+    if (typeof compileFn !== 'function') {
+      throw new SigbashSDKError(
+        'WASM not loaded — call loadWasm() before createKey()',
+        'WASM_NOT_LOADED'
+      );
+    }
+
+    // Derive a deterministic 32-byte seed for the WASM SeedManager.
+    // HKDF(apiKey || userKey || userSecretKey, salt='sigbash-policy-salt-v1',
+    //      info='poet-policy-compilation-salt') — stable per credential triplet.
+    const seedHex = await derivePolicySalt(this._apiKey, this._userKey, this._userSecretKey);
+
+    const compileResult = JSON.parse(
+      compileFn(JSON.stringify({
+        policy: JSON.stringify(poetPolicy),
+        network,
+        seed_hex: seedHex,
+        credential_id: authHash,
+      }))
+    ) as { policy_root?: string; compiled_policy_json?: string; error?: string };
+
+    if (compileResult.error) {
+      throw new PolicyCompileError(compileResult.error);
+    }
+
+    return {
+      policyRoot: compileResult.policy_root!,
+      // Use the processed policy JSON produced by the Go compiler (nullifier
+      // configs and address data have been extracted and normalised).
+      compiledPolicyJSON: compileResult.compiled_policy_json ?? JSON.stringify(poetPolicy),
+      seedHex,
+    };
+  }
+
+  /**
+   * Authorization-only registration path for identifier-scheme keys.
+   *
+   * No MuSig2 key request is made and no client-key commitment fields ride
+   * the registration payload — the server records the declared scheme and an
+   * empty signing-material set. The container's aggregate material is the
+   * client's own key (client-only aggregation inside the WASM build), the
+   * server participant is metadata from /api/v2/signing_key, and the declared
+   * key model (scheme / origin / capabilities) rides the container as
+   * additive metadata sealed into the envelope.
+   */
+  private async _createAuthorizationKey(
+    options: CreateKeyOptions,
+    poetPolicy: POETPolicy
+  ): Promise<CreateKeyResult | KeySummary> {
+    const keyScheme = options.keyScheme as KeyScheme;
+    const authHash = await this._authHash;
+    const apikeyHash = await this._apikeyHash;
+
+    // The identifier container's aggregate material is the client's own key,
+    // so the identity shares the credential's local keypair rather than
+    // deriving a server-side one.
+    this._ensureClientKeypair();
+    const privateKeyHex = Array.from(this.#musig2PrivateKey)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Same policy-compilation path as the signing registration: the policy
+    // root and its compilation salt must be identical regardless of key shape.
+    const { compiledPolicyJSON, policyRoot, seedHex } =
+      await this._compilePoetPolicy(poetPolicy, options.network, authHash);
+
+    // Server metadata participant: a read-only /api/v2/signing_key fetch —
+    // no key request, no MuSig2 session. Fingerprint, base path, and master
+    // xpub become the container's server metadata; no server share ever
+    // enters the container's aggregate key.
+    const keyInfoResponse = await this._authedFetch(
+      `/api/v2/signing_key?network=${encodeURIComponent(options.network)}`
+    );
+    if (!keyInfoResponse.ok) {
+      throw new SigbashSDKError(
+        `failed to fetch server signing key info: server returned status ${keyInfoResponse.status}`,
+        'SERVER_ERROR'
+      );
+    }
+    const keyInfo = await keyInfoResponse.json() as {
+      success?: boolean;
+      fingerprint?: string;
+      base_path?: string;
+      server_signing_public_key?: string;
+      error?: string;
+    };
+    if (!keyInfo.success || !keyInfo.fingerprint || !keyInfo.base_path
+        || !keyInfo.server_signing_public_key) {
+      throw new SigbashSDKError(
+        `server signing key info incomplete${keyInfo.error ? `: ${keyInfo.error}` : ''}`,
+        'SERVER_ERROR'
+      );
+    }
+
+    // Build the container through the authorization-only entry point: the
+    // full policy-setup chain of the aggregation path — re-compilation, root
+    // verification, rebuild chain, seal gate — with client-only aggregation.
+    const buildFn = (globalThis as Record<string, unknown>)[
+      'SigbashWASM_BuildAuthorizationKMC'
+    ] as ((input: string) => string) | undefined;
+    if (typeof buildFn !== 'function') {
+      throw new SigbashSDKError(
+        'SigbashWASM_BuildAuthorizationKMC is not available. Ensure the WASM binary is up to date.',
+        'WASM_NOT_LOADED'
+      );
+    }
+    const buildResult = JSON.parse(
+      buildFn(JSON.stringify({
+        client_private_key_hex: privateKeyHex,
+        compiled_policy_json: compiledPolicyJSON,
+        policy_root_hex: policyRoot,
+        network: options.network,
+        seed_hex: seedHex,
+        credential_id: authHash,
+        key_index: options.keyIndex ?? 0,
+        server_fingerprint: keyInfo.fingerprint,
+        server_base_path: keyInfo.base_path,
+        server_signing_xpub: keyInfo.server_signing_public_key,
+      }))
+    ) as {
+      kmc_json?: string;
+      aggregate_public_key_hex?: string;
+      internal_public_key_hex?: string;
+      p2tr_address?: string;
+      bip328_xpub?: string;
+      bip328_descriptor?: string;
+      policy_root_hex?: string;
+      error?: string;
+    };
+
+    if (buildResult.error) {
+      // Same failure-phase labels the aggregation entry point surfaces:
+      // policy-setup chain errors vs container-build errors.
+      if (buildResult.error.startsWith('policy setup failed')) {
+        throw new SigbashSDKError(buildResult.error, 'POLICY_SETUP_FAILED');
+      }
+      throw new SigbashSDKError(
+        `Key container build failed: ${buildResult.error}`,
+        'KEY_AGG_FAILED'
+      );
+    }
+
+    const kmc = JSON.parse(buildResult.kmc_json!) as Record<string, unknown>;
+    // The declared key model rides the container as additive metadata. An
+    // identifier scheme carries exactly the authorization capability; the
+    // client-chosen identifier (when given) stays sealed inside the envelope
+    // and never reaches the server in the clear.
+    kmc.scheme = keyScheme;
+    kmc.origin = 'sigbash';
+    kmc.capabilities = ['transaction_authorize'];
+    if (options.keyIdentifier !== undefined) {
+      kmc.key_identifier = options.keyIdentifier;
+    }
+    stampKeyModelMetadata(kmc);
+
+    // Sync policy root — descriptor-mode conditions (ISIS/DNNO) rebuild
+    // PathLeafs inside the WASM build, which recomputes the PolicyRoot. The
+    // post-rebuild root must be used for registration and all subsequent ops.
+    let registeredPolicyRoot = policyRoot;
+    if (buildResult.policy_root_hex) {
+      registeredPolicyRoot = buildResult.policy_root_hex;
+    }
+
+    const userRecoveryKEK = await deriveUserRecoveryKEK(
+      this._apiKey,
+      this._userKey,
+      this._userSecretKey
+    );
+    const { envelope, enc_kek2 } = await buildKMCEnvelope(kmc, {
+      apiKey: this._apiKey,
+      userKey: this._userKey,
+      userSecretKey: this._userSecretKey,
+      userRecoveryKEK,
+      authHash,
+      network: options.network,
+    });
+
+    const socket = this._requireSocket();
+    let response: RegisterKeyResponse;
+    try {
+      response = await socket.request<RegisterKeyResponse>('register_key_with_hash', {
+        auth_hash: authHash,
+        apikey_hash: apikeyHash,
+        encrypted_key_material: JSON.stringify(envelope),
+        policy_root: registeredPolicyRoot,
+        network: options.network,
+        key_index: options.keyIndex ?? 0,
+        require_2fa: options.require2FA,
+        enc_kek2,
+        // Key-model declaration, identifier shape: no client_keys, no
+        // client_key_commitment_h1, no client_key_hash — the container has
+        // no MuSig2 aggregate material for those to identify.
+        key_scheme: keyScheme,
+        key_origin: 'sigbash',
+        key_capabilities: ['transaction_authorize'],
+        ...(options.updateable === true ? { updateable: true } : {}),
+      });
+    } catch (err) {
+      if (err instanceof Error) {
+        const details = (err as { details?: { code?: string; nextAvailableIndex?: number } }).details;
+        const code = details?.code;
+        if (code === 'KEY_INDEX_EXISTS') {
+          const requested = options.keyIndex ?? 0;
+          throw new KeyIndexExistsError(requested, details?.nextAvailableIndex ?? requested + 1);
+        }
+        if (code === 'NETWORK_NOT_ENABLED' || code === 'INVALID_NETWORK') {
+          throw new NetworkError((err as Error).message);
+        }
+      }
+      throw err;
+    }
+
+    const keyIndex = options.keyIndex ?? 0;
+    const bip328Xpub = buildResult.bip328_xpub ?? '';
+    const bip328Descriptor = buildResult.bip328_descriptor ?? undefined;
+    const metadata = keyModelMetadataOf(kmc);
+
+    if (!options.verbose) {
+      return {
+        keyId: response.key_id,
+        keyIndex,
+        policyRoot: registeredPolicyRoot,
+        bip328Xpub,
+        bip328Descriptor,
+        poetJSON: _extractPoetJSON(kmc),
+        updateable: options.updateable === true,
+        origin: metadata.origin,
+        capabilities: metadata.capabilities,
+        keyRole: authorizationKeyRoleOf(metadata),
+      };
+    }
+
+    return {
+      keyId: response.key_id,
+      policyRoot: registeredPolicyRoot,
+      network: options.network,
+      require2FA: options.require2FA,
+      keyIndex,
+      p2trAddress: buildResult.p2tr_address,
+      aggregatePubKeyHex: buildResult.aggregate_public_key_hex,
       bip328Xpub,
       bip328Descriptor,
     };
@@ -1696,6 +1970,33 @@ export class SigbashClient {
       );
     }
 
+    // Structural capability preflight on the container's declared key model:
+    // an authorization-only key (an identifier scheme) carries no MuSig2
+    // aggregate material, so the blind-signing pipeline has nothing to serve
+    // it. Refusing here — before any socket call or nonce request — keeps
+    // that fact off the wire; the server refuses the same key with the same
+    // code at both admission layers. A container the key model cannot
+    // normalize falls through to the WASM pipeline's own container
+    // validation: the preflight refuses only on declared state.
+    if (options.kmcJSON) {
+      let declaredIdentifierOnly = false;
+      try {
+        declaredIdentifierOnly = !keyCanSign(
+          keyModelMetadataOf(JSON.parse(options.kmcJSON) as object)
+        );
+      } catch {
+        // Unparseable or unnormalizable container — not a key-model verdict.
+      }
+      if (declaredIdentifierOnly) {
+        throw new SigbashSDKError(
+          'This key is not capable of signing: its container declares an ' +
+            'authorization-only key model (an identifier scheme). Use ' +
+            'authorizePSBT() for authorization.',
+          'KEY_NOT_SIGNING_CAPABLE'
+        );
+      }
+    }
+
     // The Go WASM signing pipeline (requestServerNonces, requestServerUBPoint,
     // requestServerSignatureCommitmentBased) reads js.Global().Get("sharedMusigSocket")
     // to emit/receive socket events on /api/v2/musig2.  We must set this up
@@ -1744,6 +2045,13 @@ export class SigbashClient {
         if (serverCode === 'TOTP_INVALID') throw new TOTPInvalidError();
         if (serverCode === 'TOTP_SETUP_INCOMPLETE') throw new TOTPSetupIncompleteError();
         if (serverCode === 'TOTP_REQUIRED') throw new TOTPRequiredError();
+        if (serverCode === 'KEY_NOT_SIGNING_CAPABLE') {
+          throw new SigbashSDKError(
+            'This key is not capable of signing: the server refused signing ' +
+              'admission for an authorization-only key',
+            'KEY_NOT_SIGNING_CAPABLE'
+          );
+        }
       }
       throw err;
     }

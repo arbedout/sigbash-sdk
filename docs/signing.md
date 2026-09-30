@@ -33,6 +33,12 @@ if (result.success) {
 `psbtHex` is accepted as an alternative to `psbtBase64`; pass whichever encoding
 you have. If both are provided, `psbtBase64` wins.
 
+> **Authorization-only keys cannot sign.** A key created with an identifier
+> `keyScheme` (see [creating-keys.md § Authorization-only keys](creating-keys.md#authorization-only-keys))
+> declares `transaction_authorize` and no signing capability. `signPSBT()`
+> throws `KEY_NOT_SIGNING_CAPABLE` before any network traffic, and the server
+> refuses the same key with the same code at signing admission.
+
 > **Tip — verify before consuming a nullifier.** Each successful sign burns a
 > nullifier session. Use [`verifyPSBT()`](verifying.md) for a dry-run that
 > checks policy satisfaction without spending one.

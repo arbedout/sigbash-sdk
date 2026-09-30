@@ -246,11 +246,27 @@ This is display and classification metadata only. Origin and capabilities
 never enter identity digests, subject commitments, or any other wire
 commitment.
 
+### Registering an authorization-only key
+
+`createKey()` accepts an identifier `keyScheme` to mint a key that can only
+authorize: the container carries no MuSig2 aggregate material, registers
+without the signing-shaped commitment fields, and declares
+`capabilities: ['transaction_authorize']` — see
+[creating-keys.md § Authorization-only keys](creating-keys.md#authorization-only-keys).
+
+Such a key cannot sign, and the refusal is structural at both ends: the SDK
+throws `KEY_NOT_SIGNING_CAPABLE` in `signPSBT()` before any network traffic,
+and the server refuses the same key with the same code at signing admission
+(both the SDK preflight and the blind-signing path). The authorization lane
+is untouched — `authorizePSBT()` works over an authorization-only key exactly
+as over any other.
+
 ## Error codes
 
 | Code | Meaning |
 |---|---|
 | `CAPABILITY_NOT_ENABLED` | Transaction authorization is not enabled for the key or organization. |
+| `KEY_NOT_SIGNING_CAPABLE` | Signing was attempted on an authorization-only key (an identifier-scheme container). Use `authorizePSBT()`. |
 | `TOTP_REQUIRED` / `TOTP_INVALID` / `TOTP_SETUP_INCOMPLETE` | Key requires 2FA; see [admin.md](admin.md). |
 | `INVALID_LIFETIME` | `lifetimeSeconds` outside `[1, 86400]` (client, server, or WASM gate). |
 | `NETWORK_MISMATCH` | Key's registered network disagrees with the request. |

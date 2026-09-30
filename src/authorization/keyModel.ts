@@ -21,8 +21,15 @@ export const KEY_CAPABILITIES_DEFAULT: KeyCapability[] = ['bitcoin_sign'];
 /** Who generated / controls the key material. */
 export type KeyOrigin = 'sigbash' | 'user_provided';
 
-/** Cryptographic algorithm of the key material — not a chain identity. */
-export type KeyScheme = 'secp256k1_schnorr';
+/** Cryptographic algorithm of the key material — not a chain identity.
+ * The identifier schemes mark authorization-only identities: a
+ * descriptor-derived key or a client-chosen identifier whose container
+ * carries no MuSig2 aggregate material and registers without client-key
+ * commitment fields. */
+export type KeyScheme =
+  | 'secp256k1_schnorr'
+  | 'descriptor_derived'
+  | 'client_chosen_identifier';
 
 /** Structured capabilities a key advertises. */
 export type KeyCapability = 'bitcoin_sign' | 'transaction_authorize';
@@ -34,8 +41,33 @@ export interface KeyModelMetadata {
 }
 
 const KNOWN_ORIGINS: readonly KeyOrigin[] = ['sigbash', 'user_provided'];
-const KNOWN_SCHEMES: readonly KeyScheme[] = ['secp256k1_schnorr'];
+export const KNOWN_KEY_SCHEMES: readonly KeyScheme[] = [
+  'secp256k1_schnorr',
+  'descriptor_derived',
+  'client_chosen_identifier',
+];
+const KNOWN_SCHEMES = KNOWN_KEY_SCHEMES;
 const KNOWN_CAPABILITIES: readonly KeyCapability[] = ['bitcoin_sign', 'transaction_authorize'];
+
+/** The identifier schemes — authorization-only identity forms whose
+ * containers carry no MuSig2 aggregate material. */
+const IDENTIFIER_SCHEMES: readonly KeyScheme[] = ['descriptor_derived', 'client_chosen_identifier'];
+
+/** Whether a normalized key-model declaration describes an
+ * authorization-only identity: an identifier scheme carrying exactly the
+ * transaction-authorize capability. */
+export function isIdentifierKeyScheme(scheme: KeyScheme): boolean {
+  return IDENTIFIER_SCHEMES.includes(scheme);
+}
+
+/** Whether a key can sign: the signing capability is present on a
+ * signing-scheme declaration, or the key carries no declaration at all
+ * (the legacy posture, whose containers are signing-shaped by
+ * construction). An identifier scheme is never signing-capable. */
+export function keyCanSign(metadata: KeyModelMetadata): boolean {
+  if (isIdentifierKeyScheme(metadata.scheme)) return false;
+  return metadata.capabilities.includes('bitcoin_sign');
+}
 
 function rejectUnknown(field: string, value: unknown, known: readonly string[]): never {
   throw new Error(`${field} '${String(value)}' is outside the known set {${known.join(', ')}}`);

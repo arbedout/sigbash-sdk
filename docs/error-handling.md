@@ -66,7 +66,9 @@ Grouped by lifecycle phase. Every entry below is a subclass of `SigbashSDKError`
 | `PolicyCompileError` (`POLICY_COMPILE_FAILED`) | POET policy JSON rejected by the WASM compiler |
 | `KEY_GEN_FAILED` | WASM key generation returned an error |
 | `POLICY_SETUP_FAILED` | Policy setup chain failed inside WASM (path-leaf rebuild, registration commitments); the message carries the setup cause verbatim |
-| `KEY_AGG_FAILED` | MuSig2 key aggregation failed |
+| `KEY_AGG_FAILED` | MuSig2 key aggregation failed, or the authorization-only container build failed |
+| `INVALID_KEY_SCHEME` | `keyScheme` is outside the known set (client-side gate, before any network round trip) |
+| `SIGNING_FIELDS_ON_IDENTIFIER_KEY` | An identifier-scheme (`keyScheme`) registration carried signing-shaped fields (`client_keys`, `client_key_commitment_h1`, or `client_key_hash`) |
 | `AMBIGUOUS_POLICY` | Both `policy` and `policyJson` were supplied |
 | `MISSING_POLICY` | Neither `policy` nor `policyJson` was supplied |
 | `INVALID_NETWORK` | The supplied network string is not recognised |
@@ -81,6 +83,7 @@ Grouped by lifecycle phase. Every entry below is a subclass of `SigbashSDKError`
 | `TOTPSetupIncompleteError` (`TOTP_SETUP_INCOMPLETE`) | `confirmTOTP()` has not yet been called for this key |
 | `WASM_ERROR` | `SigbashWASM_SignPSBTBlind` or related WASM call failed |
 | `NO_KEY_MATERIAL` | Server response is missing `encrypted_key_material` |
+| `KEY_NOT_SIGNING_CAPABLE` | The container declares an authorization-only key model (an identifier scheme) — use `authorizePSBT()`. Thrown client-side before any network traffic, and the server refuses with the same code at signing admission |
 
 ### Recovery (`exportRecoveryKit` / `importRecoveryKit`)
 

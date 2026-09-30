@@ -161,6 +161,7 @@ Then as needed:
 
 - [Authentication](docs/authentication.md) — three-credential model, KEK derivation
 - [Signing a PSBT](docs/signing.md) — `signPSBT` options, TOTP 2FA setup
+- [Transaction Authorization](docs/transaction-authorization.md) — `authorizePSBT`, offline verification, authorization-only keys
 - [Verifying a PSBT](docs/verifying.md) — dry-run policy checks without consuming a nullifier
 - [Stateful Constraints](docs/stateful-constraints.md) — `COUNT_BASED_CONSTRAINT` and `TIME_BASED_CONSTRAINT`
 - [Error Handling](docs/error-handling.md) — error class hierarchy and recovery patterns
