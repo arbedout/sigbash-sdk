@@ -171,6 +171,8 @@ interface WasmAuthorizeResult {
   reason?: string;
   detail?: string;
   envelope_json?: string;
+  /** The completing position's bare V3 bundle JSON — what authorize_issue sends as proof_bundle. */
+  bundle_json?: string;
   subject_commitment_hex?: string;
   burn_commitments?: string[];
   session_id_hex?: string;
@@ -2149,13 +2151,15 @@ export class SigbashClient {
       }
       throw new SigbashSDKError(exportResult.detail ?? reason, 'WASM_ERROR');
     }
-    if (!exportResult.envelope_json || !exportResult.subject_commitment_hex) {
-      throw new SigbashSDKError('authorization export returned no envelope', 'WASM_ERROR');
+    if (!exportResult.envelope_json || !exportResult.subject_commitment_hex || !exportResult.bundle_json) {
+      throw new SigbashSDKError('authorization export returned no envelope or completing bundle', 'WASM_ERROR');
     }
 
-    // Step 6: issuance. The event carries the envelope and the export's
-    // commitments; the server re-verifies everything through Moon and
-    // returns the issuer-signed artifact.
+    // Step 6: issuance. proof_bundle is the completing position's BARE V3
+    // bundle — the server's authorization decoder reads a single bundle with
+    // the proof session id at the top level, not the envelope. The envelope
+    // stays here for client-side verification and rides the result to the
+    // caller.
     let issued: Record<string, unknown>;
     try {
       issued = await sdkSocket.request('authorize_issue', {
@@ -2163,7 +2167,7 @@ export class SigbashClient {
         policy_root_hex: exportResult.policy_root,
         subject_commitment_hex: exportResult.subject_commitment_hex,
         lifetime_seconds: exportResult.lifetime_seconds,
-        proof_bundle: exportResult.envelope_json,
+        proof_bundle: exportResult.bundle_json,
         access_generation: options.accessGeneration ?? null,
       }) as Record<string, unknown>;
     } catch (err) {
