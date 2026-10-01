@@ -65,8 +65,8 @@ export function registeredAuthorizationSubjects(): string[] {
 
 /**
  * Stage 1 of the subject check, subject-kind agnostic: re-aggregate the
- * completing bundle's own pins exactly as the WASM export and the Moon
- * verifier do — ONE position entry, ONE chunk entry, CompletingPosition = 0.
+ * completing bundle's own pins exactly as the WASM export and the Sigbash
+ * server's verifier do — ONE position entry, ONE chunk entry, CompletingPosition = 0.
  * No secrets, no transaction: only the envelope's GKR-pinned public inputs.
  */
 export function authorizationPinAggregateFromEnvelope(

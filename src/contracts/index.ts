@@ -363,7 +363,7 @@ export type {
 } from './chainPrivacy';
 
 // Authorization artifact — the issuer-signed, offline-verifiable attestation
-// (Moon's little-endian wire contract; see the module header).
+// (the signing service's little-endian wire contract; see the module header).
 export {
   AUTHORIZATION_ARTIFACT_VERSION,
   AUTHORIZATION_ARTIFACT_ENCODING_PREFIX,

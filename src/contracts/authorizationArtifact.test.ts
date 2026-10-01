@@ -1,8 +1,8 @@
 /**
  * The authorization artifact codec is asserted against the committed
- * golden vector — the same bytes the Moon encoder (the canonical side)
- * and the Flask mirror both produce. Any drift here fails a test, never a
- * proof.
+ * golden vector — the same bytes the signing service's encoder (the
+ * canonical side) and the Sigbash server's mirror both produce. Any drift
+ * here fails a test, never a proof.
  */
 
 import { readFileSync } from 'fs';

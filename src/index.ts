@@ -315,8 +315,8 @@ export type {
   PrincipalRebindResult,
 } from './principalAccess';
 
-// Authorization lane — software-enforced policy attestation (ADR-033).
-// The artifact attests policy compliance for a subject commitment; it is
+// Authorization lane — software-enforced policy attestation. The artifact
+// attests policy compliance for a subject commitment; it is
 // never a Bitcoin signature and never equivalent to cosigning.
 export {
   registerAuthorizationAdapter,

@@ -1,5 +1,5 @@
 /**
- * The key model's orthogonal dimensions (ADR-033 §9) as additive KMC
+ * The key model's orthogonal dimensions as additive KMC
  * container metadata: who generated the key material (origin), its
  * cryptographic algorithm (scheme), and what the key may do (capabilities).
  *

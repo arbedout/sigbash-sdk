@@ -1,5 +1,5 @@
 /**
- * Offline authorization verification — ADR-033 §16.1 as an executable
+ * Offline authorization verification as an executable
  * checklist. Given the artifact, its signature, the issuer key set, the raw
  * subject, the proof envelope, and the credential context, an enforcer can
  * accept or refuse an authorization WITHOUT the server.

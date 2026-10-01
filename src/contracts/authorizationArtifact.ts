@@ -3,17 +3,17 @@
  * returns at issuance and every enforcer verifies offline.
  *
  * Canonical definition of the artifact's binary encoding, mirroring the
- * Moon-side encoder field for field: a fixed ASCII prefix, then a
+ * signing service's encoder field for field: a fixed ASCII prefix, then a
  * little-endian version word, three length-prefixed strings, three 32-byte
  * commitments, three little-endian 64-bit numbers, a 32-byte nonce, two more
  * length-prefixed strings, and the burn-set aggregate as the final field.
  *
  * Endianness note: every other contract under src/contracts is big-endian by
  * convention. This encoding is deliberately little-endian because it is the
- * Moon service's wire contract (its encoder and the little-endian
+ * signing service's wire contract (its encoder and the little-endian
  * authorization wire data elsewhere in the stack pin the byte layout); the
- * Flask contract mirror re-implements it and cross-checks the golden
- * vectors, so a re-encode here is byte-comparable on both sides.
+ * Sigbash server's contract mirror re-implements it and cross-checks the
+ * golden vectors, so a re-encode here is byte-comparable on both sides.
  *
  * A verifier MUST re-encode a decoded artifact and compare bytes before
  * accepting it: the issuer signs the canonical encoding, so any
@@ -261,8 +261,8 @@ export function decodeAuthorizationArtifactV1(input: Uint8Array): AuthorizationA
 
 /**
  * Extract the issuer kid from a canonical encoding by walking the
- * length-prefixed fields from the front — the same front-walk the Moon
- * verifier uses, usable even where a full decode is not attempted. Returns
+ * length-prefixed fields from the front — the same front-walk the signing
+ * service's verifier uses, usable even where a full decode is not attempted. Returns
  * '' when the walk cannot reach the kid field.
  */
 export function issuerKidFromEncoding(input: Uint8Array): string {

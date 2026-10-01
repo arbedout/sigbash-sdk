@@ -9,13 +9,13 @@
  * class is machine-readable metadata bound to the exact canonical output
  * each template produces.
  *
- * The catalogue is bounded by the soundness condition census
- * (docs/soundness_condition_census_summary.md, row-level verdicts in
- * docs/soundness_condition_census.tsv). The census table below is asserted
- * row-for-row against that document by the test suite, and the module-init
+ * The catalogue is bounded by the soundness review recorded in the verdict
+ * table below: each condition type is graded sound, sound with conditions,
+ * or not sound, as of this release. The test suite asserts the table
+ * row-for-row against that review, and the module-init
  * invariant rejects any template that would grade a NOT SOUND or disabled
- * condition as hard enforcement. Condition types graded NOT SOUND at the
- * census head — most notably OUTPUT_VALUE, whose per-output comparator
+ * condition as hard enforcement. Condition types graded NOT SOUND as of
+ * this release — most notably OUTPUT_VALUE, whose per-output comparator
  * semantics do not mean "maximum external spend" — cannot appear in a hard
  * template, and no template wording implies per-output semantics equal
  * external-spend-total semantics. A descriptor-aware hard spend limit is a
@@ -41,7 +41,7 @@ import type { PolicyEnforcementClass } from './policy';
 export const POLICY_TEMPLATE_CATALOGUE_VERSION = 1;
 
 /**
- * Verdicts exactly as the soundness census grades them. Ungraded
+ * Verdicts exactly as the soundness review grades them. Ungraded
  * conditions are not listed here; they live in DISABLED_CONDITION_TYPES or
  * are unknown constructs.
  */
@@ -49,21 +49,21 @@ export type SoundnessCensusVerdict = 'sound' | 'sound_with_conditions' | 'not_so
 
 export interface CensusVerdictRecord {
   verdict: SoundnessCensusVerdict;
-  /** One-line census basis, without workflow provenance identifiers. */
+  /** One-line verdict basis. */
   basis: string;
   /**
    * Present only when a condition graded NOT SOUND still has a
    * specifically reviewed usable form after remediation. Names those
-   * forms; the selection gate enforces them shape-exactly. A census row
+   * forms; the selection gate enforces them shape-exactly. A verdict row
    * without this field is unusable as hard enforcement in any form.
    */
   hardAllowedForms?: string;
 }
 
 /**
- * The census verdict table, one row per graded condition. The test suite
- * asserts this row-for-row against the census summary document; when the
- * census updates, this table and the catalogue templates must be reviewed
+ * The soundness verdict table, one row per graded condition. The test
+ * suite asserts this row-for-row against the soundness review; when a
+ * verdict changes, this table and the catalogue templates must be reviewed
  * together in the same change.
  */
 export const SOUNDNESS_CENSUS_VERDICTS: Readonly<Record<string, CensusVerdictRecord>> = Object.freeze({
@@ -99,7 +99,7 @@ export const SOUNDNESS_CENSUS_VERDICTS: Readonly<Record<string, CensusVerdictRec
   },
   INPUT_SOURCE_IS_IN_SETS: {
     verdict: 'not_sound',
-    basis: 'Negated form vacuous at census head (one-directional atom anchoring); remediated in-circuit negation now covers the family.',
+    basis: 'Negated form vacuous as of this release (one-directional atom anchoring); remediated in-circuit negation now covers the family.',
   },
   OUTPUT_VALUE: {
     verdict: 'not_sound',
@@ -107,17 +107,17 @@ export const SOUNDNESS_CENSUS_VERDICTS: Readonly<Record<string, CensusVerdictRec
   },
   OUTPUT_DEST_IS_IN_SETS: {
     verdict: 'not_sound',
-    basis: 'Negated form vacuous at census head; positive form sound after the remediation chain, and the remediated in-circuit negation is the enforced blocklist construction.',
+    basis: 'Negated form vacuous as of this release; positive form sound after the remediation chain, and the remediated in-circuit negation is the enforced blocklist construction.',
     hardAllowedForms:
       'Positive-form set membership (any selector) and the remediated negated blocklist: NOT over an ANY-selector atom, one negated family per policy, no positive/negated mixing, fail-closed placement.',
   },
   OUTPUT_OP_RETURN: {
     verdict: 'not_sound',
-    basis: 'Negated form vacuous at census head; positive form sound.',
+    basis: 'Negated form vacuous as of this release; positive form sound.',
   },
   OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT: {
     verdict: 'not_sound',
-    basis: 'BIP-443 sentinel fail-open; the halt stands at census head.',
+    basis: 'BIP-443 sentinel fail-open; the halt stands as of this release.',
   },
   INPUT_COMMITTED_DATA_VERIFY: {
     verdict: 'not_sound',
@@ -125,7 +125,7 @@ export const SOUNDNESS_CENSUS_VERDICTS: Readonly<Record<string, CensusVerdictRec
   },
   TX_TEMPLATE_HASH_MATCHES: {
     verdict: 'sound_with_conditions',
-    basis: 'Prior commitment gap does not reproduce at census head; the NOT direction is unenforceable.',
+    basis: 'Prior commitment gap does not reproduce as of this release; the NOT direction is unenforceable.',
   },
   COUNT_BASED_CONSTRAINT: {
     verdict: 'sound_with_conditions',
@@ -145,11 +145,11 @@ export const SOUNDNESS_CENSUS_VERDICTS: Readonly<Record<string, CensusVerdictRec
   },
   MATCH_ARK_FORFEIT: {
     verdict: 'sound_with_conditions',
-    basis: 'Destination gate fails closed; value pins and live-path tamper legs are tracked census drift.',
+    basis: 'Destination gate fails closed; value pins and live-path tamper legs are tracked soundness drift.',
   },
 });
 
-/** Number of condition rows the census graded. */
+/** Number of condition rows the soundness review graded. */
 export const CENSUS_GRADED_CONDITION_COUNT = 21;
 
 /**
@@ -197,7 +197,7 @@ interface PolicyTemplateCommonV1 {
   tier: 'standard' | 'advanced';
   /** Exact condition types the template emits; empty for governance. */
   conditionTypes: readonly string[];
-  /** Census linkage per emitted condition type, quoted from the census table. */
+  /** Soundness verdict per emitted condition type, quoted from the verdict table. */
   censusBasis: Readonly<Record<string, CensusVerdictRecord>>;
   /** Trust-model and semantics notes shown beside the enforcement badge. */
   notes: readonly string[];
@@ -547,7 +547,7 @@ const TIME_DRIFT_NOTE =
   'Clock trust model: the Sigbash server checks proof-submission freshness, rejects proof submissions when client and server timestamps drift beyond fixed limits (at most 300 seconds of client/server clock drift in production), and verifies that the client timestamp equals the pinned proof input the in-circuit condition consumes. Drift gates bound clock error, and window honesty relies on the host running the honest client build.';
 
 const BLOCKLIST_NEGATION_NOTE =
-  'Negated-form construction: the census graded the negated set family NOT SOUND at census head; this template uses the remediated in-circuit negation, which enforces at most one negated condition family per policy, never mixes positive and negated content in a family slot, and places negated membership fail-closed. The negation wraps an ANY-selector atom, so the policy requires that no output is in the banned set.';
+  'Negated-form construction: the soundness review grades the negated set family NOT SOUND as of this release; this template uses the remediated in-circuit negation, which enforces at most one negated condition family per policy, never mixes positive and negated content in a family slot, and places negated membership fail-closed. The negation wraps an ANY-selector atom, so the policy requires that no output is in the banned set.';
 
 const HARD_POLICY_TEMPLATES: readonly HardPolicyTemplateDescriptorV1[] = Object.freeze([
   {
@@ -637,7 +637,7 @@ const HARD_POLICY_TEMPLATES: readonly HardPolicyTemplateDescriptorV1[] = Object.
     conditionTypes: ['COUNT_BASED_CONSTRAINT'],
     censusBasis: { COUNT_BASED_CONSTRAINT: SOUNDNESS_CENSUS_VERDICTS['COUNT_BASED_CONSTRAINT'] } as Readonly<Record<string, CensusVerdictRecord>>,
     notes: [
-      'Backed by the server-authoritative nullifier/spend-state layer with the use bound committed in-circuit; the forge check is unforgeable under the hostile-client model per the census.',
+      'Backed by the server-authoritative nullifier/spend-state layer with the use bound committed in-circuit; the forge check is unforgeable under the hostile-client model per the soundness review.',
     ],
     params: [
       { name: 'maxUses', type: 'number', description: 'Maximum signing sessions per interval (1-100000).', required: true },
@@ -749,10 +749,10 @@ const TEMPLATES_BY_ID: ReadonlyMap<string, PolicyTemplateDescriptorV1> = new Map
 
 /**
  * Re-checks the catalogue discipline: every hard template emits only
- * census-graded sound or sound-with-conditions conditions, quotes the
- * census verdict for each of them, quotes nothing else, and every
+ * sound or sound-with-conditions conditions, quotes the soundness
+ * verdict for each of them, quotes nothing else, and every
  * governance template emits no condition types at all. Runs at module
- * init; a future catalogue editor that violates the census cannot import.
+ * init; a future catalogue editor that violates the discipline cannot import.
  */
 export function assertCatalogueInvariant(
   templates: readonly PolicyTemplateDescriptorV1[] = POLICY_TEMPLATES,
@@ -764,7 +764,7 @@ export function assertCatalogueInvariant(
     const basisKeys = Object.keys(template.censusBasis).sort();
     const conditionKeys = [...template.conditionTypes].sort();
     if (basisKeys.length !== conditionKeys.length || basisKeys.some((k, i) => k !== conditionKeys[i])) {
-      throw new Error(`template ${template.templateId}: census basis must quote exactly its condition types`);
+      throw new Error(`template ${template.templateId}: verdict basis must quote exactly its condition types`);
     }
     if (template.enforcementClass === 'hard_cryptographic') {
       if (conditionKeys.length === 0) {
@@ -773,10 +773,10 @@ export function assertCatalogueInvariant(
       for (const conditionType of conditionKeys) {
         const census = SOUNDNESS_CENSUS_VERDICTS[conditionType];
         if (census === undefined) {
-          throw new Error(`template ${template.templateId}: condition ${conditionType} is not census-graded`);
+          throw new Error(`template ${template.templateId}: condition ${conditionType} has no soundness verdict`);
         }
         if (template.censusBasis[conditionType].verdict !== census.verdict) {
-          throw new Error(`template ${template.templateId}: census basis for ${conditionType} does not match the census`);
+          throw new Error(`template ${template.templateId}: verdict basis for ${conditionType} does not match the verdict table`);
         }
         const usable =
           census.verdict === 'sound' ||
@@ -852,7 +852,7 @@ export function buildGovernanceTemplateFact(templateId: string, params: Record<s
 
 export interface PolicyConditionGateOptions {
   /**
-   * Unknown condition types (not census-graded, not disabled) are
+   * Unknown condition types (no soundness verdict, not disabled) are
    * retained as advanced constructs by default. When the caller
    * represents the normal template path, set this false so anything
    * outside the graded vocabulary fails closed.
@@ -874,7 +874,7 @@ function rejectCondition(conditionType: string, path: string): string | undefine
     return undefined;
   }
   if (census !== undefined && census.verdict !== 'sound' && census.verdict !== 'sound_with_conditions') {
-    return `${path}: condition ${conditionType} is ${census.verdict.replace('_', ' ')} per the soundness census and cannot be hard enforcement`;
+    return `${path}: condition ${conditionType} is ${census.verdict.replace('_', ' ')} per the soundness review and cannot be hard enforcement`;
   }
   if (DISABLED_CONDITION_TYPES.includes(conditionType)) {
     return `${path}: condition ${conditionType} is a disabled registry slot and cannot be hard enforcement`;
@@ -884,7 +884,7 @@ function rejectCondition(conditionType: string, path: string): string | undefine
 
 /**
  * Fail-closed gate over a policy AST (raw parsed node tree). Rejects:
- * census NOT SOUND or removed conditions, disabled registry slots, REQKEY
+ * graded NOT SOUND or removed conditions, disabled registry slots, REQKEY
  * outside the locked system clause, any negation outside the exact
  * remediated destination-blocklist shape (NOT over exactly one condition
  * node — a negation never spans an operator's children, so one family

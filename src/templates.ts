@@ -4,17 +4,19 @@
  * Templates generate POET v1.1 policy JSON from simple parameters.
  * Use templates instead of raw POET JSON for common use cases.
  *
- * The registry is bounded by the soundness condition census: every
- * template emits only census-graded condition types in their reviewed
+ * The registry is bounded by the soundness review: every
+ * template emits only condition types the review graded sound or sound
+ * with conditions, in their reviewed
  * forms, the only negation is the remediated destination blocklist (NOT
  * over an ANY-selector atom), and no template reads the wall clock —
  * time constraints take explicit timestamps, dates, and hours. As a
- * census-per-output-comparator consequence no template expresses a
+ * per-output-comparator consequence of that review no template expresses a
  * spend-amount cap; amount bands live in the governance workflow lane.
  *
  * Every policy returned by buildPolicyFromTemplate is re-checked against
  * the fail-closed selection gate from the contracts catalogue, so a
- * registry entry that drifts outside the census cannot return a policy.
+ * registry entry that drifts outside the reviewed vocabulary cannot return
+ * a policy.
  */
 
 import type { POETPolicy } from './types';
@@ -374,15 +376,15 @@ export const POLICY_TEMPLATES: Record<string, PolicyTemplate> = {
 /**
  * Build a POET policy from a template ID and parameters.
  *
- * Every returned policy passes the fail-closed selection gate: census
+ * Every returned policy passes the fail-closed selection gate: graded
  * NOT SOUND or removed condition types, disabled registry slots, REQKEY,
  * and every negation outside the remediated blocklist shape are
- * rejected, so a template that drifts outside the census cannot return.
+ * rejected, so a template that drifts outside the review cannot return.
  *
  * @param templateId - Template identifier (e.g. 'bitcoin-inheritance')
  * @param params - Template-specific parameters
  * @returns Compiled POETPolicy object
- * @throws Error if template not found, params invalid, or the built policy is outside the census vocabulary
+ * @throws Error if template not found, params invalid, or the built policy is outside the reviewed condition vocabulary
  */
 export function buildPolicyFromTemplate(
   templateId: string,

@@ -2,7 +2,7 @@
  * Member-directory contracts: the server-readable membership facts of one
  * organization's active roster.
  *
- * The directory is the ADR-acknowledged server-visible membership
+ * The directory is the server-visible membership
  * inventory: user id, normalized account email, the two org-global role
  * flags the membership row carries, and the membership status. It is an
  * authorization-scoped read, not a privacy surface — and it is also a

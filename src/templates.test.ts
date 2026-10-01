@@ -1,8 +1,8 @@
 /**
  * Unit tests for buildPolicyFromTemplate (templates.ts)
  *
- * The registry is bounded by the soundness condition census: every
- * template emits only census-graded conditions in their reviewed forms,
+ * The registry is bounded by the soundness review: every
+ * template emits only condition types the review graded sound, in their reviewed forms,
  * the only negation is the remediated destination blocklist shape, and
  * no template reads the wall clock. Each test builds through the same
  * fail-closed selection gate the contracts catalogue uses.
@@ -39,7 +39,7 @@ function conditionTypes(policy: PolicyNode): string[] {
 
 describe('buildPolicyFromTemplate', () => {
   // ---------------------------------------------------------------------------
-  // Registry-wide census discipline
+  // Registry-wide soundness discipline
   // ---------------------------------------------------------------------------
   it('registry offers exactly the conformant templates', () => {
     expect(AVAILABLE_IDS).toBe(
@@ -47,7 +47,7 @@ describe('buildPolicyFromTemplate', () => {
     );
   });
 
-  it('no template emits a census NOT SOUND condition type, REQKEY, or a disabled slot', () => {
+  it('no template emits a graded NOT SOUND condition type, REQKEY, or a disabled slot', () => {
     const forbidden = ['OUTPUT_VALUE', 'REQKEY', 'INPUT_SOURCE_IS_IN_SETS', 'OUTPUT_OP_RETURN'];
     for (const [id, template] of Object.entries(POLICY_TEMPLATES)) {
       const built = buildPolicyFromTemplate(id, sampleParams(id));
@@ -58,7 +58,7 @@ describe('buildPolicyFromTemplate', () => {
     }
   });
 
-  it('every template output passes the fail-closed census gate', () => {
+  it('every template output passes the fail-closed selection gate', () => {
     for (const id of Object.keys(POLICY_TEMPLATES)) {
       const built = buildPolicyFromTemplate(id, sampleParams(id));
       expect(() =>
@@ -67,7 +67,7 @@ describe('buildPolicyFromTemplate', () => {
     }
   });
 
-  it('the census gate rejects a hand-built spend-cap policy, so the gate really binds', () => {
+  it('the selection gate rejects a hand-built spend-cap policy, so the gate really binds', () => {
     const spendCap = {
       type: 'condition',
       conditionType: 'OUTPUT_VALUE',

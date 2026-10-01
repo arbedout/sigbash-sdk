@@ -441,7 +441,7 @@ export interface SignPSBTOptions {
    * by this value during proof-bundle witness construction (see
    * `signing_longfellow_wire.go` `mockedTime` handling).
    *
-   * Requires the server to be running in test mode (Moon honors
+   * Requires the server to be running in test mode (the Sigbash server honors
    * `bundle.MockedTimeUTC > 0` only when test mode is enabled). Production
    * deployments ignore this field via the no-op `SetMockedTimeForTesting`
    * stub registered by the production WASM build.

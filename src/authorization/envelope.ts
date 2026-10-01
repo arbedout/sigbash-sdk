@@ -224,7 +224,7 @@ export function parseAuthorizationEnvelope(input: string | Record<string, unknow
 /**
  * The canonical covenant write commit for one bundle: the FIRST chunk
  * marked is_final_chunk, else the LAST chunk's value, else zero — the same
- * selection the WASM export and the Moon verifier apply before aggregating.
+ * selection the WASM export and the Sigbash server's verifier apply before aggregating.
  */
 export function selectCovenantWriteCommit(bundle: AuthorizationBundle): Uint8Array {
   const chunks = bundle.outputChunkProofs;

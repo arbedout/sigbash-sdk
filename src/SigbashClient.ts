@@ -2234,8 +2234,8 @@ export class SigbashClient {
         // The observed signing key does not match a registered REQKEY
         // descriptor-mode candidate — a policy-not-satisfied outcome (the
         // real key differs from what's registered), detected server-side by
-        // Moon's per-input weld-commitment cross-check rather than a
-        // client-side pre-check.
+        // the Sigbash server's per-input weld-commitment cross-check rather
+        // than a client-side pre-check.
         errMsg.includes('REQKEY-descriptor weld commitment mismatch') ||
         // A well-formed PSBT that spends only segwit-v0 (P2WSH/P2WPKH) inputs is
         // unsignable by contract, not an infrastructure fault: Sigbash keys only
@@ -2616,7 +2616,7 @@ export class SigbashClient {
   }
 
   /**
-   * Offline verification of a received authorization — ADR-033 §16.1.
+   * Offline verification of a received authorization.
    *
    * Never burns state and never talks to the server when the issuer key set
    * is already cached. Without the salt-bearing context (or the envelope,
@@ -2649,8 +2649,8 @@ export class SigbashClient {
   }
 
   /**
-   * Server-assisted consumption status for one authorized action (ADR-033
-   * §17.1). Offline verification cannot detect prior consumption — salted
+   * Server-assisted consumption status for one authorized action. Offline
+   * verification cannot detect prior consumption — salted
    * nullifiers are uncomputable without key material — so this helper asks
    * the server, keyed on the action key the burn model consumes.
    */
@@ -3239,8 +3239,8 @@ export class SigbashClient {
           if (!isRelative) {
             return baseFetch(url as Parameters<typeof fetch>[0], init);
           }
-          // WASM-issued HTTP calls: attach X-Sigbash-Auth so Flask can forward
-          // credential_id to Moon for ProofSessionToken tracking (Wagner k=1),
+          // WASM-issued HTTP calls: attach X-Sigbash-Auth so the server can forward
+          // credential_id to the signing service for ProofSessionToken tracking (Wagner k=1),
           // AND attach X-Sigbash-Sig so the server's
           // @require_pop_signature gate accepts the call.
           const existingHeaders = (init?.headers ?? {}) as Record<string, string>;

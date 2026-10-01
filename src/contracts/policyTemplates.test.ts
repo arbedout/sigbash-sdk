@@ -1,5 +1,5 @@
 /**
- * Policy template catalogue tests: the census row-for-row assertion,
+ * Policy template catalogue tests: the verdict-table row-for-row assertion,
  * the module-init catalogue invariant, golden AST vectors per template,
  * determinism, the fail-closed selection gate, parameter bounds, and
  * enforcement-class-to-output binding for stored selections.
@@ -25,10 +25,10 @@ import {
 import vectors from './vectors/policy-templates-v1.json';
 
 /**
- * Transcribed from docs/soundness_condition_census_summary.md (per-row
- * verdict table). The embedded census table must match this row for row;
- * when the census updates, update this transcript and review every
- * template that references a changed row in the same change.
+ * Per-row verdict transcript of the soundness review. The embedded verdict
+ * table must match this row for row; when a verdict changes, update this
+ * transcript and review every template that references a changed row in
+ * the same change.
  */
 const CENSUS_TRANSCRIPT: Readonly<Record<string, string>> = {
   TX_VERSION: 'sound',
@@ -54,8 +54,8 @@ const CENSUS_TRANSCRIPT: Readonly<Record<string, string>> = {
   MATCH_ARK_FORFEIT: 'sound_with_conditions',
 };
 
-describe('Census verdict table', () => {
-  it('matches the census summary row for row', () => {
+describe('Soundness verdict table', () => {
+  it('matches the review transcript row for row', () => {
     const embedded = Object.keys(SOUNDNESS_CENSUS_VERDICTS).sort();
     const transcript = Object.keys(CENSUS_TRANSCRIPT).sort();
     expect(embedded).toEqual(transcript);
@@ -65,7 +65,7 @@ describe('Census verdict table', () => {
     expect(Object.keys(SOUNDNESS_CENSUS_VERDICTS)).toHaveLength(CENSUS_GRADED_CONDITION_COUNT);
   });
 
-  it('carries a remediated-form carve-out for exactly the rows the census bounds that way', () => {
+  it('carries a remediated-form carve-out for exactly the rows the verdict table bounds that way', () => {
     const carvedOut = Object.entries(SOUNDNESS_CENSUS_VERDICTS)
       .filter(([, record]) => record.hardAllowedForms !== undefined)
       .map(([conditionType]) => conditionType);
@@ -133,21 +133,21 @@ describe('Catalogue invariant', () => {
         {
           ...hard,
           conditionTypes: ['DERIVED_SIGHASH_TYPE'],
-          censusBasis: { DERIVED_SIGHASH_TYPE: { verdict: 'sound_with_conditions', basis: 'fabricated' } },
+          censusBasis: { DERIVED_SIGHASH_TYPE: { verdict: 'sound_with_conditions', basis: 'fabricated, no review basis' } },
         },
       ]),
-    ).toThrow(/not census-graded/);
+    ).toThrow(/no soundness verdict/);
     expect(() =>
       assertCatalogueInvariant([
         {
           ...hard,
           conditionTypes: ['OUTPUT_VALUE'],
           censusBasis: {
-            OUTPUT_VALUE: { verdict: 'sound_with_conditions', basis: 'fabricated, contradicting the census' },
+            OUTPUT_VALUE: { verdict: 'sound_with_conditions', basis: 'fabricated, contradicting the verdict table' },
           },
         },
       ]),
-    ).toThrow(/does not match the census/);
+    ).toThrow(/does not match the verdict table/);
   });
 });
 
@@ -310,7 +310,7 @@ describe('Fail-closed selection gate', () => {
         not(condition('OUTPUT_DEST_IS_IN_SETS', { selector: 'ALL', addresses: ['tb1qexamplebannedaddress0000000000000000000cc'], network: 'signet' })),
       ),
     ).toThrow(/ANY-selector/);
-    // Negating other families stays out: the census vacuity has no remediated shape here.
+    // Negating other families stays out: the review's vacuity finding has no remediated shape here.
     expect(() =>
       validatePolicySelectionAst(
         not(condition('INPUT_SOURCE_IS_IN_SETS', { selector: 'ANY', addresses: ['tb1qexampleaddress0000000000000000000000000aa'], network: 'signet' })),
@@ -352,7 +352,7 @@ describe('Fail-closed selection gate', () => {
     expect(() => validatePolicySelectionAst(blocklist.ast.root)).not.toThrow();
   });
 
-  it('names the Moon freshness, 300-second production drift, and pinned-input checks in the time template', () => {
+  it('names the server freshness, 300-second production drift, and pinned-input checks in the time template', () => {
     const timeWindow = POLICY_TEMPLATES.find((template) => template.templateId === 'time-window');
     expect(timeWindow).toBeDefined();
     const notes = timeWindow!.notes.join(' ');
@@ -361,7 +361,7 @@ describe('Fail-closed selection gate', () => {
     expect(notes).toContain('pinned proof input');
   });
 
-  it('rejects census NOT SOUND conditions, removed conditions, and disabled slots', () => {
+  it('rejects graded NOT SOUND conditions, removed conditions, and disabled slots', () => {
     expect(() => validatePolicySelectionAst(condition('OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT', {}))).toThrow(/not sound/);
     expect(() => validatePolicySelectionAst(condition('INPUT_COMMITTED_DATA_VERIFY', {}))).toThrow(/not sound/);
     expect(() => validatePolicySelectionAst(condition('MATCH_ARK_INTENT', {}))).toThrow(/removed/);
