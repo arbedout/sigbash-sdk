@@ -334,8 +334,6 @@ if [ -n "$NEXT" ]; then
 fi
 ```
 
-This mirrors the retry pattern documented in `AGENTS.md`.
-
 ---
 
 ## Listing Keys

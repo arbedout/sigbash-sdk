@@ -13,7 +13,7 @@ A Sigbash policy is a boolean tree of **operators** (AND/OR/NOT/THRESHOLD/…) o
 | Business hours | `TIME_BASED_CONSTRAINT` within + `active_days` | `start_hour`/`end_hour` in UTC |
 | Inheritance | `OR(REQKEY owner, AND(REQKEY heir, TIME_BASED_CONSTRAINT after, COUNT_BASED_CONSTRAINT))` | Heir unlocks after `start_time` with rate limit |
 | Wallet self-consolidation | `DERIVED_NO_NEW_OUTPUTS` + `use_descriptor: true` | `descriptor_template` filled at registration |
-| BIP-443 two-step vault | `OR(AND(INPUT_COMMITTED_DATA_VERIFY d0, OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT d1), INPUT_COMMITTED_DATA_VERIFY SIGBASH_COVENANT_STATE)` | See `demos/bip443-vault-demo.js` |
+| BIP-443 two-step vault | `OR(AND(INPUT_COMMITTED_DATA_VERIFY d0, OUTPUT_SCRIPTPUBKEY_MATCHES_COMMITMENT d1), INPUT_COMMITTED_DATA_VERIFY SIGBASH_COVENANT_STATE)` | Two-step covenant check over committed input data |
 | Admin override | `IMPLIES(NOT(REQKEY admin), OUTPUT_VALUE LTE cap)` | Admin bypasses; others are capped |
 | Tiered limits | `OR(AND(small-cap, daily-limit), REQKEY admin)` | Two tiers of access |
 

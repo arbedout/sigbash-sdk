@@ -1245,6 +1245,3 @@ const policy = conditionConfigToPoetPolicy({
   ],
 });
 ```
-
-See [`demos/bip443-vault-demo.js`](../demos/bip443-vault-demo.js) for a runnable end-to-end
-example including deposit, trigger, completion, and a failed attack attempt.

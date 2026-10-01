@@ -1,6 +1,6 @@
 # Transaction authorization
 
-This is the SDK surface for ADR-033: authorize an action against a key's
+Transaction authorization lets you authorize an action against a key's
 policy, hand the signed authorization to an external enforcer, and let any
 party verify it offline. It is a distinct lane from [signing](signing.md) —
 see "The three enforcement strengths" below for exactly where this lane
@@ -100,11 +100,11 @@ refuses truncation, trailing bytes, and unknown versions (`AUTHORIZATION_NON_CAN
 `AUTHORIZATION_UNKNOWN_VERSION`).
 
 Golden vectors live in `src/contracts/vectors/contracts-v1.json`
-(`authorization_artifact_v1`) and are mirrored byte-exactly by the server
-repository's `api/contracts.py`; the same vectors pin the canonical Go
-encoder. Note the little-endian field order is a deliberate deviation from
-the server repository's big-endian convention — it follows Moon's wire
-contract, which is the canonical side.
+(`authorization_artifact_v1`); the Sigbash server encodes artifacts
+byte-exactly to these same vectors. The little-endian field order is
+canonical for this format — it is a deliberate exception to the big-endian
+convention used elsewhere in the server's wire protocol, so do not assume
+that convention when reimplementing a decoder.
 
 ## Issuing: what `authorizePSBT` does
 

@@ -203,7 +203,7 @@ const client = new SigbashClient({
 
 const { keyId, aggregatePubKeyHex } = await client.createKey({
   policy,
-  network: 'signet',   // 'signet' by default; see AGENTS.md for mainnet access
+  network: 'signet',   // 'signet' by default; email sales@sigbash.com for mainnet access
   require2FA: false,
 });
 

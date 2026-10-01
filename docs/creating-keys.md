@@ -36,10 +36,10 @@ await client.createKey({ policy, network: 'signet', require2FA: false });
 | `business-hours-only` | Signing restricted to an explicit daily UTC window | `activeDays`, `startHourUtc`, `endHourUtc`, `startDate`, `endDate`, `startUnixSeconds`, `endUnixSeconds` |
 | `no-new-outputs-consolidation` | All outputs must go to input addresses (UTXO consolidation) | *(none)* |
 
-Every template emits only census-sound condition forms: no spend-amount caps
-(those live in the governance workflow), no key-requirement clauses, no
-wall-clock reads — time parameters are explicit, and `buildPolicyFromTemplate`
-re-validates each built policy against the fail-closed selection gate, so a
+Every template emits only condition forms the zero-knowledge proof enforces
+completely: no spend-amount caps, no key-requirement clauses, no wall-clock
+reads — time parameters are explicit, and `buildPolicyFromTemplate`
+re-validates each built policy against a fail-closed selection gate, so a
 non-conformant build throws instead of returning.
 
 See [policy-reference.md](policy-reference.md) for the underlying condition

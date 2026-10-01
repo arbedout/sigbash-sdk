@@ -113,7 +113,7 @@ const policy = conditionConfigToPoetPolicy({
 // Register a key with the policy
 const { keyId, bip328Xpub, bip328Descriptor, aggregatePubKeyHex, p2trAddress } = await client.createKey({
   policy,
-  network:    'signet',   // 'signet' is the default; mainnet is gated — see AGENTS.md / contact sales
+  network:    'signet',   // 'signet' is the default; mainnet is gated — contact sales@sigbash.com
   require2FA: false,      // whether 2FA is required at signing time
 });
 console.log('Export descriptor:', bip328Descriptor);

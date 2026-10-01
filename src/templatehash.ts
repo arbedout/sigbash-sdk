@@ -1,12 +1,10 @@
 /**
  * TX_TEMPLATE_HASH_MATCHES commitment computation.
  *
- * TX220 replaced the original BIP-446-tagged-SHA256 semantic (which the
- * in-circuit gate never actually enforced against — see the wasm-side
- * TX220 task file for the full root-cause trail) with a zero-SHA256-block
- * GF(2^128) algebraic polynomial commitment over the same six preimage
- * fields: nVersion, nLockTime, sha_sequences, sha_outputs, annex_present,
- * input_index. The unified circuit sits at a hard, zero-slack 64/64
+ * A zero-SHA256-block GF(2^128) algebraic polynomial commitment over six
+ * preimage fields: nVersion, nLockTime, sha_sequences, sha_outputs,
+ * annex_present, input_index. The unified circuit sits at a hard,
+ * zero-slack 64/64
  * SHA256-block budget — a real in-circuit BIP-446 hash would cost 2 more
  * blocks and roughly double proof cost for every signing operation.
  * TX_TEMPLATE_HASH_MATCHES is Sigbash-internal POET enforcement only

@@ -544,7 +544,7 @@ function buildProposalExpirationFact(params: Record<string, unknown>): Governanc
 // ---------------------------------------------------------------------------
 
 const TIME_DRIFT_NOTE =
-  'Clock trust model: the Moon verifier checks proof-submission freshness, rejects proof submissions when client and Moon timestamps drift beyond fixed limits (at most 300 seconds of client/server clock drift in production), and verifies that the client timestamp equals the pinned proof input the in-circuit condition consumes. Drift gates bound clock error, and window honesty relies on the host running the honest client build (census sound-with-conditions basis).';
+  'Clock trust model: the Sigbash server checks proof-submission freshness, rejects proof submissions when client and server timestamps drift beyond fixed limits (at most 300 seconds of client/server clock drift in production), and verifies that the client timestamp equals the pinned proof input the in-circuit condition consumes. Drift gates bound clock error, and window honesty relies on the host running the honest client build.';
 
 const BLOCKLIST_NEGATION_NOTE =
   'Negated-form construction: the census graded the negated set family NOT SOUND at census head; this template uses the remediated in-circuit negation, which enforces at most one negated condition family per policy, never mixes positive and negated content in a family slot, and places negated membership fail-closed. The negation wraps an ANY-selector atom, so the policy requires that no output is in the banned set.';
