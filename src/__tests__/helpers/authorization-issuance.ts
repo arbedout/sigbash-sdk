@@ -228,9 +228,22 @@ export function issue(overrides?: IssueOverrides): SignedIssuance {
 /** The export object SigbashWASM_AuthorizePSBT resolves with on success. */
 export function wasmExportSuccess(envelopeJSON: string): Record<string, unknown> {
   const envelope = parseEnvelopeJSON(envelopeJSON);
+  // The export carries the completing position's BARE bundle JSON alongside
+  // the envelope — the same fields the envelope embeds under
+  // positions[completing_position].bundle, with the proof session id at the
+  // top level. The issuance proof_bundle the client forwards is this bare
+  // serialization, not the envelope.
+  const envelopeRecord = JSON.parse(envelopeJSON) as {
+    completing_position: number;
+    positions: Array<{ bundle: unknown }>;
+  };
+  const completingBundleJSON = JSON.stringify(
+    envelopeRecord.positions[envelopeRecord.completing_position].bundle
+  );
   return {
     success: true,
     envelope_json: envelopeJSON,
+    bundle_json: completingBundleJSON,
     subject_commitment_hex: bytesToHex(authorizationPinAggregateFromEnvelope(envelope)),
     policy_root: bytesToHex(digest('policy-root')),
     lifetime_seconds: 900,
