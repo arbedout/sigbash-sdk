@@ -238,6 +238,31 @@ describe('authorizePSBT client flow (mocked boundaries)', () => {
     });
   });
 
+  it('names the absent field when a successful export is incomplete', async () => {
+    const fullExport = wasmExportSuccess(honestEnvelopeJSON());
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ ...fullExport, envelope_json: undefined }, 'envelope_json'],
+      [{ ...fullExport, subject_commitment_hex: undefined }, 'subject_commitment_hex'],
+      [{ ...fullExport, bundle_json: undefined }, 'bundle_json'],
+      [{ success: true }, 'envelope_json, subject_commitment_hex, bundle_json'],
+    ];
+
+    for (const [exportResult, expectedFields] of cases) {
+      const client = stubClient();
+      // The guard fires after preflight and before issuance.
+      stubSocket((event) => {
+        if (event === 'authorize_preflight') return { success: true, network: 'signet' };
+        throw new Error('must not be reached');
+      });
+      stubAuthHash(client);
+      stubWasm(exportResult);
+
+      const err = await client.authorizePSBT(BASE_OPTIONS).catch(e => e);
+      expect(err.code).toBe('AUTHORIZATION_EXPORT_INVALID');
+      expect(err.message).toContain(expectedFields);
+    }
+  });
+
   it('refuses an export whose subject commitment disagrees with the artifact', async () => {
     const client = stubClient();
     const issuance = issue();

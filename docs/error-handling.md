@@ -85,6 +85,12 @@ Grouped by lifecycle phase. Every entry below is a subclass of `SigbashSDKError`
 | `NO_KEY_MATERIAL` | Server response is missing `encrypted_key_material` |
 | `KEY_NOT_SIGNING_CAPABLE` | The container declares an authorization-only key model (an identifier scheme) — use `authorizePSBT()`. Thrown client-side before any network traffic, and the server refuses with the same code at signing admission |
 
+### `authorizePSBT()`
+
+| Class / code | When thrown |
+|---|---|
+| `AUTHORIZATION_EXPORT_INVALID` | The WASM export succeeded but is missing a required field (`envelope_json`, `subject_commitment_hex`, or `bundle_json`); the message names every absent field. The remaining authorization-lane codes are catalogued in [transaction-authorization.md](transaction-authorization.md) |
+
 ### Recovery (`exportRecoveryKit` / `importRecoveryKit`)
 
 | Class / code | When thrown |

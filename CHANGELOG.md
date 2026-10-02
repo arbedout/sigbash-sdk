@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   derivation range before anything can be registered.
 - `WALLET_REQKEY_TEMPLATE_PREFIX` is now exported from the contracts module
   (byte-identical value; re-exported from the wallet namespace as before).
+- **`authorizePSBT()` reports an incomplete successful export as
+  `AUTHORIZATION_EXPORT_INVALID`.** When the WASM export resolves without
+  `envelope_json`, `subject_commitment_hex`, or `bundle_json`, the error
+  message names every absent field instead of collapsing into the opaque
+  `WASM_ERROR` code.
 
 ### Changed
 

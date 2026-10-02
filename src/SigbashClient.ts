@@ -2506,7 +2506,18 @@ export class SigbashClient {
       throw new SigbashSDKError(exportResult.detail ?? reason, 'WASM_ERROR');
     }
     if (!exportResult.envelope_json || !exportResult.subject_commitment_hex || !exportResult.bundle_json) {
-      throw new SigbashSDKError('authorization export returned no envelope or completing bundle', 'WASM_ERROR');
+      const missingExportFields = (
+        [
+          ['envelope_json', exportResult.envelope_json],
+          ['subject_commitment_hex', exportResult.subject_commitment_hex],
+          ['bundle_json', exportResult.bundle_json],
+        ] as Array<[string, string | undefined]>
+      ).filter(([, value]) => !value).map(([name]) => name);
+      const plural = missingExportFields.length > 1 ? 's' : '';
+      throw new SigbashSDKError(
+        `authorization export is missing required field${plural}: ${missingExportFields.join(', ')}`,
+        'AUTHORIZATION_EXPORT_INVALID'
+      );
     }
 
     // Step 6: issuance. proof_bundle is the completing position's BARE V3
