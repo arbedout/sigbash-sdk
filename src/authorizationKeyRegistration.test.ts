@@ -17,7 +17,14 @@
 
 import { SigbashClient, SigbashSDKError } from './index';
 import { decryptKMCEnvelope } from './crypto';
-import { isIdentifierKeyScheme, keyCanSign, keyModelMetadataOf } from './authorization/keyModel';
+import {
+  isIdentifierKeyScheme,
+  keyCanSign,
+  keyModelMetadataOf,
+  keyRoleForScheme,
+  normalizeKeyModelMetadata,
+  stampKeyModelMetadata,
+} from './authorization/keyModel';
 
 // ---------------------------------------------------------------------------
 // Socket seam: a fake SigbashSocket with real listener semantics.
@@ -377,6 +384,8 @@ describe('identifier-shape registration (descriptor_derived)', () => {
       expect(container['scheme']).toBe('client_chosen_identifier');
       expect(container['origin']).toBe('sigbash');
       expect(container['capabilities']).toEqual(['transaction_authorize']);
+      expect(container['role']).toBe('authorization');
+      expect(container['chain']).toBe('Bitcoin');
       expect(container['key_identifier']).toBe('treasury-identity-1');
 
       // The identifier reaches the server only sealed: the plaintext payload
@@ -608,6 +617,28 @@ describe('signing-shape registration', () => {
       client.disconnect();
     }
   });
+
+  it('stamps the signing role and the chain default onto the signing-shape container', async () => {
+    const client = makeClient();
+    try {
+      await client.createKey({
+        policy: minimalPolicy,
+        network: 'signet',
+        require2FA: false,
+      });
+      const payload = registerPayload();
+      const envelope = JSON.parse(payload['encrypted_key_material'] as string);
+      const sealed = await decryptKMCEnvelope(envelope, CREDENTIALS.apiKey, CREDENTIALS.userKey, CREDENTIALS.userSecretKey);
+      const container = sealed as Record<string, unknown>;
+      // The signing posture is declared explicitly once the SDK stamps the
+      // container, and the chain rides as the descriptive default.
+      expect(container['role']).toBe('signing');
+      expect(container['chain']).toBe('Bitcoin');
+      expect(container['scheme']).toBe('secp256k1_schnorr');
+    } finally {
+      client.disconnect();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -710,5 +741,39 @@ describe('key model helpers', () => {
     expect(keyCanSign(keyModelMetadataOf(JSON.parse(identifierContainer)))).toBe(false);
     // A legacy container (no declared model) keeps the signing default.
     expect(keyCanSign(keyModelMetadataOf(JSON.parse('{}')))).toBe(true);
+  });
+
+  it('canonicalizes the lane role from the declared scheme', () => {
+    expect(keyRoleForScheme('descriptor_derived')).toBe('authorization');
+    expect(keyRoleForScheme('client_chosen_identifier')).toBe('authorization');
+    expect(keyRoleForScheme('secp256k1_schnorr')).toBe('signing');
+  });
+
+  it('defaults the role and chain on normalization, keeping legacy containers signing-shaped', () => {
+    const legacy = normalizeKeyModelMetadata(JSON.parse('{}') as object) as Record<string, unknown>;
+    expect(legacy['role']).toBe('signing');
+    expect(legacy['chain']).toBe('Bitcoin');
+    // Per-field defaults only: the normalization layer never derives one
+    // field from another. Scheme/role consistency is the wasm boundary's
+    // fail-closed check, not a normalization behavior.
+  });
+
+  it('rejects unknown role and chain values as container corruption', () => {
+    expect(() =>
+      normalizeKeyModelMetadata({ role: 'multichain' } as object)
+    ).toThrow("role 'multichain' is outside the known set {signing, authorization}");
+    expect(() =>
+      normalizeKeyModelMetadata({ chain: 'Ethereum' } as object)
+    ).toThrow("chain 'Ethereum' is outside the known set {Bitcoin}");
+  });
+
+  it('preserves a declared role and chain on rewrap', () => {
+    const stamped = stampKeyModelMetadata({
+      role: 'authorization',
+      chain: 'Bitcoin',
+      scheme: 'descriptor_derived',
+    } as object) as Record<string, unknown>;
+    expect(stamped['role']).toBe('authorization');
+    expect(stamped['chain']).toBe('Bitcoin');
   });
 });

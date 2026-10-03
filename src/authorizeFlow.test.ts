@@ -321,6 +321,112 @@ describe('authorizePSBT client flow (mocked boundaries)', () => {
   });
 });
 
+describe('authorizePSBT over container-declared lanes (mocked boundaries)', () => {
+  const originalWasm = (globalThis as unknown as Record<string, unknown>)['SigbashWASM_AuthorizePSBT'];
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalWasm === undefined) {
+      delete (globalThis as unknown as Record<string, unknown>)['SigbashWASM_AuthorizePSBT'];
+    } else {
+      (globalThis as unknown as Record<string, unknown>)['SigbashWASM_AuthorizePSBT'] = originalWasm;
+    }
+  });
+
+  // The lane signal lives in the container: the client hands the wasm the
+  // decrypted container verbatim and passes no lane flag of its own, so a
+  // caller cannot re-lane a container from the outside. The identifier
+  // declaration rides through untouched and the flow round-trips.
+  const identifierDeclaredKMC = JSON.stringify({
+    key_index: 0,
+    scheme: 'client_chosen_identifier',
+    origin: 'sigbash',
+    capabilities: ['transaction_authorize'],
+    role: 'authorization',
+    chain: 'Bitcoin',
+    key_identifier: 'treasury-identity-1',
+  });
+
+  it('passes an identifier-declared container through verbatim and round-trips', async () => {
+    const client = stubClient();
+    const issuance = issue();
+    const socket = stubSocket((event) => {
+      if (event === 'authorize_preflight') return { success: true, network: 'signet' };
+      if (event === 'authorize_issue') {
+        return {
+          success: true,
+          artifact: toBase64(issuance.rawArtifact),
+          artifact_signature: toBase64(issuance.rawSignature),
+        };
+      }
+      throw new Error(`unexpected event ${event}`);
+    });
+    stubAuthHash(client);
+    const wasmStub = stubWasm(wasmExportSuccess(honestEnvelopeJSON()));
+
+    const result = await client.authorizePSBT({ ...BASE_OPTIONS, kmcJSON: identifierDeclaredKMC });
+    expect(result.rawArtifact).toBeInstanceOf(Uint8Array);
+    expect(wasmStub).toHaveBeenCalledTimes(1);
+    expect(wasmStub.mock.calls[0][1]).toBe(identifierDeclaredKMC);
+    // No out-of-band lane parameter: the export's params stay the lifetime
+    // window alone, whatever the container declares.
+    expect(JSON.parse(wasmStub.mock.calls[0][3] as string)).toEqual({ lifetime_seconds: 900 });
+    expect(socket.requests[0].event).toBe('authorize_preflight');
+  });
+
+  it('passes a signing-declared container through with the same shape', async () => {
+    const client = stubClient();
+    const issuance = issue();
+    stubSocket((event) => {
+      if (event === 'authorize_preflight') return { success: true, network: 'signet' };
+      if (event === 'authorize_issue') {
+        return {
+          success: true,
+          artifact: toBase64(issuance.rawArtifact),
+          artifact_signature: toBase64(issuance.rawSignature),
+        };
+      }
+      throw new Error(`unexpected event ${event}`);
+    });
+    stubAuthHash(client);
+    const wasmStub = stubWasm(wasmExportSuccess(honestEnvelopeJSON()));
+
+    const signingDeclaredKMC = JSON.stringify({
+      key_index: 0,
+      scheme: 'secp256k1_schnorr',
+      origin: 'sigbash',
+      capabilities: ['bitcoin_sign'],
+      role: 'signing',
+      chain: 'Bitcoin',
+    });
+    await client.authorizePSBT({ ...BASE_OPTIONS, kmcJSON: signingDeclaredKMC });
+    expect(wasmStub.mock.calls[0][1]).toBe(signingDeclaredKMC);
+    expect(JSON.parse(wasmStub.mock.calls[0][3] as string)).toEqual({ lifetime_seconds: 900 });
+  });
+
+  it('leaves a legacy container (no declared model) byte-identical on the same flow', async () => {
+    const client = stubClient();
+    const issuance = issue();
+    stubSocket((event) => {
+      if (event === 'authorize_preflight') return { success: true, network: 'signet' };
+      if (event === 'authorize_issue') {
+        return {
+          success: true,
+          artifact: toBase64(issuance.rawArtifact),
+          artifact_signature: toBase64(issuance.rawSignature),
+        };
+      }
+      throw new Error(`unexpected event ${event}`);
+    });
+    stubAuthHash(client);
+    const wasmStub = stubWasm(wasmExportSuccess(honestEnvelopeJSON()));
+
+    const legacyKMC = '{"key_index":0}';
+    await client.authorizePSBT({ ...BASE_OPTIONS, kmcJSON: legacyKMC });
+    expect(wasmStub.mock.calls[0][1]).toBe(legacyKMC);
+  });
+});
+
 describe('getAuthorizationStatus (mocked socket)', () => {
   afterEach(() => {
     jest.restoreAllMocks();

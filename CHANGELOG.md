@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Authorization lane over identifier-scheme keys.** The container now also
+  carries a lane declaration (`role: 'signing' | 'authorization'`, with the
+  SDK stamping `'authorization'` for identifier schemes) and descriptive
+  `chain: 'Bitcoin'` metadata — both additive and absent on legacy
+  containers. `authorizePSBT()` resolves the lane from the container's own
+  declaration: an identifier container runs the lane without extracting a
+  client private key, a signing-shaped container stamped with the
+  authorization role is refused (`AUTHZ_KEY_SHAPE_REJECTED`), and a missing
+  or self-inconsistent declaration fails closed (`AUTHZ_KEY_ROLE_INVALID`).
+  No lane parameter exists on the SDK surface.
+
 - **Generalized key registration for authorization-only identities.**
   `createKey()` accepts `keyScheme` (`'descriptor_derived'` or
   `'client_chosen_identifier'`) to register a key whose container carries no

@@ -259,7 +259,13 @@ throws `KEY_NOT_SIGNING_CAPABLE` in `signPSBT()` before any network traffic,
 and the server refuses the same key with the same code at signing admission
 (both the SDK preflight and the blind-signing path). The authorization lane
 is untouched — `authorizePSBT()` works over an authorization-only key exactly
-as over any other.
+as over any other, with the same call shape and no lane parameter: the
+container's own `role` declaration selects the lane. A signing-shaped
+container stamped with the authorization role is refused
+(`AUTHZ_KEY_SHAPE_REJECTED` — its aggregate mixes a server share), and an
+identifier container whose role declaration is missing or self-inconsistent
+fails closed (`AUTHZ_KEY_ROLE_INVALID`). Signing requires the server's key
+share, which is never issued on the authorization path.
 
 ## Error codes
 
@@ -272,6 +278,8 @@ as over any other.
 | `NETWORK_MISMATCH` | Key's registered network disagrees with the request. |
 | `POLICY_REJECTED` | The PSBT does not satisfy the key policy (`POLICY_NOT_SATISFED` from the proof). |
 | `AUTHZ_SESSION_SHAPE_REJECTED` | The proof session's shape is outside the authorization lane. |
+| `AUTHZ_KEY_ROLE_INVALID` | The container's key-model declaration is missing or self-inconsistent (identifier scheme without a role, role contradicting the scheme, or wrong capability set). Surfaces inside a `WASM_ERROR`. |
+| `AUTHZ_KEY_SHAPE_REJECTED` | The container declares the authorization role but its aggregate material is not client-only-derived — the signature of a signing-shaped container presented under the authorization lane. Surfaces inside a `WASM_ERROR`. |
 | `AUTHORIZATION_ALREADY_CONSUMED` | The action's stateful allowance was already spent. |
 | `WASM_NOT_LOADED` | `loadWasm()` has not run. |
 | `ISSUER_UNKNOWN` | No key set, or the artifact names an unknown issuer key id. |

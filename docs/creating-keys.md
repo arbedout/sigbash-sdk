@@ -122,9 +122,10 @@ What changes for an identifier scheme:
   and `client_key_hash` entirely; the server refuses those signing-shaped
   fields with `SIGNING_FIELDS_ON_IDENTIFIER_KEY` if a caller sends them.
 - **The container declares its key model.** The sealed envelope carries
-  `scheme`, `origin`, and `capabilities: ['transaction_authorize']`. The
-  server mirrors the declaration server-side. `keyIdentifier`, when given, is
-  sealed inside the envelope and never appears in the clear on the wire.
+  `scheme`, `origin`, `capabilities: ['transaction_authorize']`, the lane
+  declaration `role: 'authorization'`, and the descriptive `chain: 'Bitcoin'`.
+  The server mirrors the declaration server-side. `keyIdentifier`, when given,
+  is sealed inside the envelope and never appears in the clear on the wire.
 - **Hash-derived identity is unchanged.** The key's identity, scope, and the
   whole authorization lane work exactly as for any other key — see
   [transaction-authorization.md](transaction-authorization.md).

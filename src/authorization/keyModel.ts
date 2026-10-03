@@ -17,6 +17,8 @@
 export const KEY_ORIGIN_DEFAULT: KeyOrigin = 'sigbash';
 export const KEY_SCHEME_DEFAULT: KeyScheme = 'secp256k1_schnorr';
 export const KEY_CAPABILITIES_DEFAULT: KeyCapability[] = ['bitcoin_sign'];
+export const KEY_ROLE_DEFAULT: KeyRole = 'signing';
+export const KEY_CHAIN_DEFAULT: KeyChain = 'Bitcoin';
 
 /** Who generated / controls the key material. */
 export type KeyOrigin = 'sigbash' | 'user_provided';
@@ -34,10 +36,25 @@ export type KeyScheme =
 /** Structured capabilities a key advertises. */
 export type KeyCapability = 'bitcoin_sign' | 'transaction_authorize';
 
+/** The container's declared lane role — the field the wasm authorization
+ * export branches on. The container declares its own role, so the export
+ * never takes a caller-supplied lane flag: a signing-shaped container
+ * cannot be presented under the authorization lane. Absent means the
+ * legacy signing posture. */
+export type KeyRole = 'signing' | 'authorization';
+
+/** Which chain the key's authorization lane describes. Descriptive
+ * metadata only — chain awareness on the authorization lane begins with
+ * the multichain work; until then the field is present and documented so
+ * consumers can key off it without another container change. */
+export type KeyChain = 'Bitcoin';
+
 export interface KeyModelMetadata {
   origin: KeyOrigin;
   scheme: KeyScheme;
   capabilities: KeyCapability[];
+  role: KeyRole;
+  chain: KeyChain;
 }
 
 const KNOWN_ORIGINS: readonly KeyOrigin[] = ['sigbash', 'user_provided'];
@@ -48,6 +65,8 @@ export const KNOWN_KEY_SCHEMES: readonly KeyScheme[] = [
 ];
 const KNOWN_SCHEMES = KNOWN_KEY_SCHEMES;
 const KNOWN_CAPABILITIES: readonly KeyCapability[] = ['bitcoin_sign', 'transaction_authorize'];
+const KNOWN_ROLES: readonly KeyRole[] = ['signing', 'authorization'];
+const KNOWN_CHAINS: readonly KeyChain[] = ['Bitcoin'];
 
 /** The identifier schemes — authorization-only identity forms whose
  * containers carry no MuSig2 aggregate material. */
@@ -58,6 +77,14 @@ const IDENTIFIER_SCHEMES: readonly KeyScheme[] = ['descriptor_derived', 'client_
  * transaction-authorize capability. */
 export function isIdentifierKeyScheme(scheme: KeyScheme): boolean {
   return IDENTIFIER_SCHEMES.includes(scheme);
+}
+
+/** The lane role a declared scheme canonicalizes to: identifier schemes
+ * declare the authorization role, the signing scheme the signing role.
+ * Stamped onto the container at create time so the container itself is
+ * the lane's source of truth. */
+export function keyRoleForScheme(scheme: KeyScheme): KeyRole {
+  return isIdentifierKeyScheme(scheme) ? 'authorization' : 'signing';
 }
 
 /** Whether a key can sign: the signing capability is present on a
@@ -106,6 +133,18 @@ export function normalizeKeyModelMetadata(kmc: object): object {
       throw new Error('capabilities carries a duplicate entry');
     }
   }
+  const role = container.role;
+  if (role === undefined) {
+    container.role = KEY_ROLE_DEFAULT;
+  } else if (!KNOWN_ROLES.includes(role as KeyRole)) {
+    rejectUnknown('role', role, KNOWN_ROLES);
+  }
+  const chain = container.chain;
+  if (chain === undefined) {
+    container.chain = KEY_CHAIN_DEFAULT;
+  } else if (!KNOWN_CHAINS.includes(chain as KeyChain)) {
+    rejectUnknown('chain', chain, KNOWN_CHAINS);
+  }
   return kmc;
 }
 
@@ -147,5 +186,7 @@ export function keyModelMetadataOf(kmc: object): KeyModelMetadata {
     origin: container.origin as KeyOrigin,
     scheme: container.scheme as KeyScheme,
     capabilities: container.capabilities as KeyCapability[],
+    role: container.role as KeyRole,
+    chain: container.chain as KeyChain,
   };
 }

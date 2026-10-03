@@ -117,7 +117,9 @@ import {
   isIdentifierKeyScheme,
   keyCanSign,
   keyModelMetadataOf,
+  KEY_CHAIN_DEFAULT,
   KNOWN_KEY_SCHEMES,
+  keyRoleForScheme,
   normalizeKeyModelMetadata,
   stampKeyModelMetadata,
 } from './authorization/keyModel';
@@ -1720,10 +1722,15 @@ export class SigbashClient {
     // The declared key model rides the container as additive metadata. An
     // identifier scheme carries exactly the authorization capability; the
     // client-chosen identifier (when given) stays sealed inside the envelope
-    // and never reaches the server in the clear.
+    // and never reaches the server in the clear. `role` is the lane
+    // declaration the wasm authorization export branches on — the container
+    // itself decides which lane runs — and `chain` is descriptive metadata
+    // the multichain work will key off.
     kmc.scheme = keyScheme;
     kmc.origin = 'sigbash';
     kmc.capabilities = ['transaction_authorize'];
+    kmc.role = keyRoleForScheme(keyScheme);
+    kmc.chain = KEY_CHAIN_DEFAULT;
     if (options.keyIdentifier !== undefined) {
       kmc.key_identifier = options.keyIdentifier;
     }

@@ -29,6 +29,12 @@ machine-checkable; documentation and API copy must never present
 authorization as equivalent to threshold signing. `signPSBT` remains the
 mode of record for value that must not move without Sigbash.
 
+The lane runs over any registered key shape, including authorization-only
+identifier keys whose container carries no server key share at all. Signing
+requires the server's key share, which is never issued on the authorization
+path — authorization and signing are separate capabilities on separate
+containers, never two uses of the same material.
+
 Both lanes share one stateful allowance: authorizing an action burns the
 same nullifier commitments signing it would, so no action is ever
 approved twice across the two modes. See
