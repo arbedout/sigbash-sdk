@@ -224,7 +224,7 @@ X-Sigbash-Sig: t=1715900000000;n=9a3f4d7b8e2c1f0a4d6e8b5c2f1a3d4e;v=1;k=7f4a3c1b
 | 401 | `SIGNATURE_PUBKEY_UNKNOWN` | No `pop_pubkey` registered for this `auth_hash`. |
 | 401 | `SIGNATURE_PUBKEY_MISMATCH`| `k` prefix does not match stored `pop_pubkey`. |
 | 401 | `SIGNATURE_INVALID`        | Ed25519 verification failed (wrong key, tampered transcript). |
-| 401 | `CREDENTIAL_MISMATCH`      | Socket event payload declares a credential that does not match the authenticated session. |
+| 401 | `CREDENTIAL_MISMATCH`      | Socket event declares an `auth_hash` other than the session credential — connection or session mixing. Raised before signature verification, so no nonce is consumed. Events that carry no `auth_hash` in the payload verify against the session credential as before. |
 
 ### What this closes — and what it does not
 

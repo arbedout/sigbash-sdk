@@ -118,6 +118,8 @@ These are full members of the modern hierarchy — extend `SigbashSDKError` dire
 | `NetworkMismatchError` | `NETWORK_MISMATCH` | `expected` and `actual` carry the conflicting network strings |
 | `PolicyValidationError` | `POLICY_INVALID` | `issues` is an array of structured `PolicyIssue` records |
 
+Socket PoP-gate refusals (`SIGNATURE_INVALID`, `SIGNATURE_REPLAY`, `CREDENTIAL_MISMATCH`, …) surface as `ServerError` with the server's code preserved verbatim. `CREDENTIAL_MISMATCH` means the event declared a credential other than the session's — typically two clients sharing one connection; give every `SigbashClient` its own transport and retry. The full PoP failure-code catalogue lives in [authentication.md](authentication.md).
+
 ### Generic codes (raised via the `SigbashSDKError` base directly)
 
 | Code | When thrown |
