@@ -5,6 +5,19 @@ All notable changes to the Sigbash SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-10-04
+
+### Fixed
+
+- **Each `SigbashSocket` now owns its connection.** `socket.io-client` caches
+  Managers per host, so two `SigbashClient`s constructed against the same
+  server URL in one runtime were handed the same `Socket` instance — and
+  therefore the same authenticated server session. An event emitted by one
+  client was then verified by the server's per-event proof-of-possession gate
+  against the other client's session credential and rejected with a generic
+  `SIGNATURE_INVALID`. Socket creation now passes `forceNew: true`, so every
+  client owns its connection and its own server session.
+
 ## [0.9.0] — 2026-10-01
 
 ### Added
