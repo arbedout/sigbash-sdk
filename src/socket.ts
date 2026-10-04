@@ -130,6 +130,13 @@ export class SigbashSocket {
     const base = serverUrl.replace(/\/$/, '');
     this._socket = io(`${base}${namespace}`, {
       autoConnect: true,
+      // Each SigbashSocket owns its connection. Without this, socket.io-client
+      // returns the SAME Socket instance to every client constructed against
+      // the same server URL, so a second client's events authenticate under
+      // the first client's server session — the per-event PoP gate then
+      // verifies a transcript over the wrong credential and rejects with
+      // SIGNATURE_INVALID. One identity, one transport.
+      forceNew: true,
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
